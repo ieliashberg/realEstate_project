@@ -219,7 +219,7 @@ def dump_homes_to_csv(full_homes_json):
             "dom": h.get("dom"),
             "listingAgentName": h.get("listingAgent", {}).get("name"),
             "listingAgentRedfinId": h.get("listingAgent", {}).get("redfinAgentId"),
-            "url": h.get("url"),
+            "url": "https://www.redfin.com" + h.get("url"),
             "isNewConstruction": h.get("isNewConstruction"),
             "listingRemarks": h.get("listingRemarks"),
             "businessMarketId": h.get("businessMarketId"),
@@ -241,29 +241,78 @@ def dump_homes_to_csv(full_homes_json):
     print(f"Saved {len(df)} rows to redfin_homes.csv")
 
 
+def get_specific_info_on_each_property(data_csv):
+    # df = pd.read_csv(data_csv)
+    # url = df.iloc[0]['url']
+    # html, cookies = fetch_html_and_cookies(url)
+    # with open('html.txt', 'w', encoding='utf-8') as f:
+    #     f.write(html)
+
+    with open('html.txt', 'r', encoding='utf-8') as f:
+        html = f.read()
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    # find the outer school table container:
+    schools_container = soup.find("div", class_="schools-content")
+
+    # within that, grab each “flex align-center” block (school):
+    schools = schools_container.find_all("div", class_="flex align-center")
+
+    # loop over each school and grab important attributes
+    for school in schools:
+        rating_span = school.select_one("span.rating-num.font-size-base.font-weight-bold")
+        if rating_span:
+            rating = rating_span.get_text(strip=True)
+        else:
+            rating = None
+        print(rating)
+
+        name_span = school.select_one("div.ListItem__heading.font-body-base-bold.color-text-primary")
+        if name_span:
+            name = name_span.get_text(strip=True)
+        else:
+            name = None
+        print(name)
+
+        description_span = school.select_one("p.ListItem__description.font-body-small-compact.color-text-secondary")
+        if description_span:
+            description = description_span.get_text(strip=True)
+        else:
+            description = None
+        print(description)
+
+
+
+    # for idx, row in df.iterrows():
+    #     print(df.iloc[0]['url'])
+
+
 def main():
-    # searching a particular zip code and for no pool
-    url = "https://www.redfin.com/zipcode/85297/filter/pool-type=no-private"
-    initial_gis_url = None
-    cookies = None
-    headers = None
-    try:
-        found_gis_url_without_cluster_bounds, found_cookies, found_headers = fetch_redfin_gis_url_cookies_and_header(url)
+    # # searching a particular zip code and for no pool
+    # url = "https://www.redfin.com/zipcode/85297/filter/pool-type=no-private"
+    # initial_gis_url = None
+    # cookies = None
+    # headers = None
+    # try:
+    #     found_gis_url_without_cluster_bounds, found_cookies, found_headers = fetch_redfin_gis_url_cookies_and_header(url)
+    #
+    #     initial_gis_url = found_gis_url_without_cluster_bounds
+    #     cookies = found_cookies
+    #     headers = found_headers
+    #
+    # except Exception as e:
+    #     print("Error:", e)
+    #
+    # homes_json = get_homes_data(initial_gis_url, cookies, headers)
 
-        initial_gis_url = found_gis_url_without_cluster_bounds
-        cookies = found_cookies
-        headers = found_headers
+    # # Useful for if you don't want to run the first part every time and save the dumped json
+    # with open("redfin_data.json", "r", encoding="utf-8") as f:
+    #     homes_json = json.load(f)
+    #
+    # dump_homes_to_csv(homes_json)
 
-    except Exception as e:
-        print("Error:", e)
-
-    homes_json = get_homes_data(initial_gis_url, cookies, headers)
-
-    # Useful for if you don't want to run the first part every time and save the dumped json
-    with open("redfin_data.json", "r", encoding="utf-8") as f:
-        homes_json = json.load(f)
-
-    dump_homes_to_csv(homes_json)
+    get_specific_info_on_each_property('redfin_homes.csv')
 
 
 if __name__ == "__main__":
