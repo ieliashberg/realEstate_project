@@ -197,7 +197,6 @@ def dump_homes_to_csv(full_homes_json):
             "price": h.get("price", {}).get("value"),
             "hideSalePrice": h.get("hideSalePrice"),
             "hoa": h.get("hoa", {}).get("value"),
-            "isHoaFrequencyKnown": h.get("isHoaFrequencyKnown"),
             "sqFt": h.get("sqFt", {}).get("value"),
             "pricePerSqFt": h.get("pricePerSqFt", {}).get("value"),
             "lotSize": h.get("lotSize", {}).get("value"),
@@ -225,7 +224,6 @@ def dump_homes_to_csv(full_homes_json):
             "businessMarketId": h.get("businessMarketId"),
             "remarksAccessLevel": h.get("remarksAccessLevel"),
             "propertyType": h.get("propertyType"),
-            "uiPropertyType": h.get("uiPropertyType"),
             "listingType": h.get("listingType"),
             "propertyId": h.get("propertyId"),
             "listingId": h.get("listingId"),
@@ -242,77 +240,130 @@ def dump_homes_to_csv(full_homes_json):
 
 
 def get_specific_info_on_each_property(data_csv):
-    # df = pd.read_csv(data_csv)
-    # url = df.iloc[0]['url']
-    # html, cookies = fetch_html_and_cookies(url)
-    # with open('html.txt', 'w', encoding='utf-8') as f:
-    #     f.write(html)
+    df = pd.read_csv(data_csv)
 
-    with open('html.txt', 'r', encoding='utf-8') as f:
-        html = f.read()
+    # add new necessary columns
+    df['Tax Annual Amount'] = None
+    df['covered spaces'] = None
 
-    soup = BeautifulSoup(html, "html.parser")
+    for i, row in df.iterrows():
 
-    # find the outer school table container:
-    schools_container = soup.find("div", class_="schools-content")
+        url = df.iloc[i]['url']
+        html, cookies = fetch_html_and_cookies(url)
+        # with open('html.txt', 'w', encoding='utf-8') as f:
+        #     f.write(html)
+        #
+        # with open('html.txt', 'r', encoding='utf-8') as f:
+        #     html = f.read()
 
-    # within that, grab each “flex align-center” block (school):
-    schools = schools_container.find_all("div", class_="flex align-center")
+        soup = BeautifulSoup(html, "html.parser")
 
-    # loop over each school and grab important attributes
-    for school in schools:
-        rating_span = school.select_one("span.rating-num.font-size-base.font-weight-bold")
-        if rating_span:
-            rating = rating_span.get_text(strip=True)
-        else:
-            rating = None
-        print(rating)
+        # find the outer school table container:
+        schools_container = soup.find("div", class_="schools-content")
 
-        name_span = school.select_one("div.ListItem__heading.font-body-base-bold.color-text-primary")
-        if name_span:
-            name = name_span.get_text(strip=True)
-        else:
-            name = None
-        print(name)
+        # within that, grab each “flex align-center” block (school):
+        schools = schools_container.find_all("div", class_="flex align-center")
 
-        description_span = school.select_one("p.ListItem__description.font-body-small-compact.color-text-secondary")
-        if description_span:
-            description = description_span.get_text(strip=True)
-        else:
-            description = None
-        print(description)
+        # loop over each school and grab important attributes
+        for school in schools:
 
+            # get the school rating
+            rating_span = school.select_one("span.rating-num.font-size-base.font-weight-bold")
+            if rating_span:
+                rating = rating_span.get_text(strip=True)
+            else:
+                rating = None
+            print("rating = " + rating)
+            # get the school name
+            name_span = school.select_one("div.ListItem__heading.font-body-base-bold.color-text-primary")
+            if name_span:
+                name = name_span.get_text(strip=True)
+            else:
+                name = None
+            print(name)
 
+            # get the school description
+            description_span = school.select_one("p.ListItem__description.font-body-small-compact.color-text-secondary")
+            if description_span:
+                description = description_span.get_text(strip=True)
+            else:
+                description = None
+            print(description)
 
-    # for idx, row in df.iterrows():
-    #     print(df.iloc[0]['url'])
+        # get the number of covered spaces
+        label_node = soup.find(string="Covered Spaces: ")
+        if label_node:
+            covered_spaces_span = label_node.find_next("span")
+            df.loc[i, 'covered spaces'] = covered_spaces_span.text
+
+        # get the HOA info (divide by 3 if quarterly and leave it if monthly)
+        label_node = soup.find(string="Association Fee: ")
+        HOA_monthly_cost = 0
+        if label_node:
+            HOA_cost_span = label_node.find_next("span")
+            HOA_monthly_cost = HOA_cost_span.text
+            label_node = soup.find(string="Association Fee Frequency: ")
+            if label_node:
+                HOA_frequency_span = label_node.find_next("span")
+                if HOA_frequency_span.text == "Quarterly":
+                    HOA_monthly_cost = float(HOA_monthly_cost[1:]) / 3
+        df.at[i, 'hoa'] = HOA_monthly_cost
+
+        # get price history information (along with details)
+        price_history_timeline_contents = soup.select("div.PropertyHistoryEventRow")
+        for history_row in price_history_timeline_contents:
+
+            # date
+            date = history_row.select_one("div.col-4 > p").get_text(strip=True)
+
+            # 2) description
+            description = history_row.select_one("div.description-col.col-4 > div").get_text(strip=True)
+
+            # 3) price
+            price = history_row.select_one("div.price-col.number").get_text(strip=True)
+
+            print(f"date = {date}")
+            print(f"description = {description}")
+            print(f"price = {price}")
+
+        # get last year tax information
+        tax_label_node = soup.find(string="Tax Annual Amount: ")
+        if tax_label_node:
+            tax_amount_span = tax_label_node.find_next("span")
+            df.loc[i, 'Tax Annual Amount'] = tax_amount_span.text
+
+    print("updated redfin_homes.csv file")
+    df.to_csv("redfin_homes.csv", index=False)
 
 
 def main():
     # # searching a particular zip code and for no pool
-    # url = "https://www.redfin.com/zipcode/85297/filter/pool-type=no-private"
-    # initial_gis_url = None
-    # cookies = None
-    # headers = None
-    # try:
-    #     found_gis_url_without_cluster_bounds, found_cookies, found_headers = fetch_redfin_gis_url_cookies_and_header(url)
-    #
-    #     initial_gis_url = found_gis_url_without_cluster_bounds
-    #     cookies = found_cookies
-    #     headers = found_headers
-    #
-    # except Exception as e:
-    #     print("Error:", e)
-    #
-    # homes_json = get_homes_data(initial_gis_url, cookies, headers)
+    url = "https://www.redfin.com/zipcode/85297/filter/pool-type=no-private"
+    initial_gis_url = None
+    cookies = None
+    headers = None
+    try:
+        found_gis_url_without_cluster_bounds, found_cookies, found_headers = fetch_redfin_gis_url_cookies_and_header(
+            url)
+
+        initial_gis_url = found_gis_url_without_cluster_bounds
+        cookies = found_cookies
+        headers = found_headers
+
+    except Exception as e:
+        print("Error:", e)
+
+    homes_json = get_homes_data(initial_gis_url, cookies, headers)
 
     # # Useful for if you don't want to run the first part every time and save the dumped json
     # with open("redfin_data.json", "r", encoding="utf-8") as f:
     #     homes_json = json.load(f)
-    #
-    # dump_homes_to_csv(homes_json)
+
+    dump_homes_to_csv(homes_json)
 
     get_specific_info_on_each_property('redfin_homes.csv')
+    # html, cookies = fetch_html_and_cookies(url)
+    # print(html[:500])
 
 
 if __name__ == "__main__":
