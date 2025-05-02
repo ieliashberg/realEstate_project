@@ -50,7 +50,14 @@ def fetch_html_and_cookies(url, wait=5):
 def fetch_page_html(url: str) -> str:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/135.0.0.0 Safari/537.36"
+            )
+        )
+        page = context.new_page()
         page.goto(url, wait_until="domcontentloaded")
         html = page.content()
         browser.close()
@@ -284,6 +291,11 @@ def dump_homes_to_csv(full_homes_json):
 def get_specific_info_on_each_property(data_csv):
     df = pd.read_csv(data_csv)
 
+    # url = df.iloc[0]['url']
+    # html = fetch_page_html(url)
+    # with open('html.txt', 'w', encoding='utf-8') as f:
+    #     f.write(html)
+
     # add new necessary columns
     df['Tax Annual Amount'] = None
     df['covered spaces'] = None
@@ -291,7 +303,7 @@ def get_specific_info_on_each_property(data_csv):
     for i, row in df.iterrows():
 
         url = df.iloc[i]['url']
-        html, cookies = fetch_html_and_cookies(url)
+        html = fetch_page_html(url)
         # with open('html.txt', 'w', encoding='utf-8') as f:
         #     f.write(html)
         #
@@ -388,7 +400,6 @@ def strip_cluster_bounds_from_gis(gis_url):
 
 def main():
     # # searching a particular zip code and for no pool
-    url = "https://www.redfin.com/zipcode/85297/filter/pool-type=no-private"
 
     # initial_gis_url = None
     # cookies = None
@@ -414,12 +425,15 @@ def main():
     #
     # get_specific_info_on_each_property('redfin_homes.csv')
 
-    url = "https://www.redfin.com/city/14240/AZ/Phoenix"
-    gis_url, headers, payload = fetch_gis_url_headers_and_json(url)
-    print("GIS URL:", gis_url)
-    print("Headers:", headers)
-    print(payload)
-    print(fetch_page_html(url))
+    url = "https://www.redfin.com/zipcode/85297/filter/pool-type=no-private"
+    gis_url, headers, homes_payload = fetch_gis_url_headers_and_json(url)
+
+    # print("GIS URL:", gis_url)
+    # print("Headers:", headers)
+    # print(payload)
+    # print(fetch_page_html(url))
+    dump_homes_to_csv(homes_payload)
+    get_specific_info_on_each_property('redfin_homes.csv')
 
 
 if __name__ == "__main__":
