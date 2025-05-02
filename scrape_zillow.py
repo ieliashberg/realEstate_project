@@ -16,9 +16,8 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 import pandas as pd
 
-
-# from playwright.sync_api import sync_playwright
-# from playwright_stealth import stealth_sync
+from playwright.sync_api import sync_playwright
+from playwright_stealth import stealth_sync
 
 
 # not currently used
@@ -48,6 +47,41 @@ def fetch_html_and_cookies(url, wait=5):
     return html, {c["name"]: c["value"] for c in raw_cookies}
 
 
+def fetch_gis_url_headers_and_json(page_url):
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/135.0.0.0 Safari/537.36"
+            )
+        )
+        page = context.new_page()
+
+        # 1) Navigate until network is quiet
+        page.goto(page_url)
+        time.sleep(1)
+
+        # 2) Prepare to catch the GIS response
+        #    The lambda will be evaluated on every response: we pick the one whose URL contains "/stingray/api/gis"
+        with page.expect_response(lambda response: "/stingray/api/gis?" in response.url, timeout=10_000) as resp_info:
+            # 3) Trigger the map‐refresh that fires that request
+            page.click("[data-rf-test-id='map-zoom-control-minus'] button")
+        gis_response = resp_info.value
+
+        # 4) Pull out URL, request headers, and JSON body
+        gis_url = gis_response.url
+        gis_headers = gis_response.request.headers
+        raw_text = gis_response.text()
+        if raw_text.startswith("{}&&"):
+            raw_text = raw_text.split("&&", 1)[1]
+        gis_payload = json.loads(raw_text)
+
+        browser.close()
+        return gis_url, gis_headers, gis_payload
+
+
 def get_cookies_from_driver(driver) -> dict:
     return {c["name"]: c["value"] for c in driver.get_cookies()}
 
@@ -64,8 +98,6 @@ def get_gis_request_headers(perf_entries, gis_url) -> dict:
             req = msg["params"]["request"]
             if req["url"].startswith(gis_url.split("?")[0]):
                 return req["headers"]
-    # fallback minimal set:
-    # return {'Referer': 'https://www.redfin.com/city/14240/AZ/Phoenix', 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36', 'sec-ch-ua': '"Google Chrome";v="135", "Not-A.Brand";v="8", "Chromium";v="135"', 'sec-ch-ua-mobile': '?0', 'sec-ch-ua-platform': '"macOS"'}
 
 
 def fetch_redfin_gis_url_cookies_and_header(base_url):
@@ -312,7 +344,6 @@ def get_specific_info_on_each_property(data_csv):
         # get price history information (along with details)
         price_history_timeline_contents = soup.select("div.PropertyHistoryEventRow")
         for history_row in price_history_timeline_contents:
-
             # date
             date = history_row.select_one("div.col-4 > p").get_text(strip=True)
 
@@ -336,34 +367,48 @@ def get_specific_info_on_each_property(data_csv):
     df.to_csv("redfin_homes.csv", index=False)
 
 
+def strip_cluster_bounds_from_gis(gis_url):
+    cluster_bounds_start = gis_url.find("&cluster_bounds")
+    cluster_bounds_end = cluster_bounds_start + 1
+    while gis_url[cluster_bounds_end] != "&":
+        cluster_bounds_end += 1
+    gis_without_cluster_bounds = gis_url[:cluster_bounds_start] + gis_url[cluster_bounds_end:]
+    return gis_without_cluster_bounds
+
+
 def main():
     # # searching a particular zip code and for no pool
     url = "https://www.redfin.com/zipcode/85297/filter/pool-type=no-private"
-    initial_gis_url = None
-    cookies = None
-    headers = None
-    try:
-        found_gis_url_without_cluster_bounds, found_cookies, found_headers = fetch_redfin_gis_url_cookies_and_header(
-            url)
 
-        initial_gis_url = found_gis_url_without_cluster_bounds
-        cookies = found_cookies
-        headers = found_headers
+    # initial_gis_url = None
+    # cookies = None
+    # headers = None
+    # try:
+    #     found_gis_url_without_cluster_bounds, found_cookies, found_headers = fetch_redfin_gis_url_cookies_and_header(
+    #         url)
+    #
+    #     initial_gis_url = found_gis_url_without_cluster_bounds
+    #     cookies = found_cookies
+    #     headers = found_headers
+    #
+    # except Exception as e:
+    #     print("Error:", e)
+    #
+    # homes_json = get_homes_data(initial_gis_url, cookies, headers)
+    #
+    # # # Useful for if you don't want to run the first part every time and save the dumped json
+    # # with open("redfin_data.json", "r", encoding="utf-8") as f:
+    # #     homes_json = json.load(f)
+    #
+    # dump_homes_to_csv(homes_json)
+    #
+    # get_specific_info_on_each_property('redfin_homes.csv')
 
-    except Exception as e:
-        print("Error:", e)
-
-    homes_json = get_homes_data(initial_gis_url, cookies, headers)
-
-    # # Useful for if you don't want to run the first part every time and save the dumped json
-    # with open("redfin_data.json", "r", encoding="utf-8") as f:
-    #     homes_json = json.load(f)
-
-    dump_homes_to_csv(homes_json)
-
-    get_specific_info_on_each_property('redfin_homes.csv')
-    # html, cookies = fetch_html_and_cookies(url)
-    # print(html[:500])
+    url = "https://www.redfin.com/city/14240/AZ/Phoenix"
+    gis_url, headers, payload = fetch_gis_url_headers_and_json(url)
+    print("GIS URL:", gis_url)
+    print("Headers:", headers)
+    print(payload)
 
 
 if __name__ == "__main__":
