@@ -47,7 +47,7 @@ def fetch_html_and_cookies(url, wait=5):
     return html, {c["name"]: c["value"] for c in raw_cookies}
 
 
-def fetch_page_html(url: str) -> str:
+def click_more_property_data_and_fetch_page_html(url: str) -> str:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
@@ -57,8 +57,23 @@ def fetch_page_html(url: str) -> str:
                 "Chrome/135.0.0.0 Safari/537.36"
             )
         )
+
         page = context.new_page()
         page.goto(url, wait_until="domcontentloaded")
+
+        # wait for redfin to load in the button if it's there
+        time.sleep(1)
+
+        property_history_div = page.query_selector("div.sectionContainer[data-rf-test-id='propertyHistory']")
+        if property_history_div:
+            btn = property_history_div.query_selector("button.ExpandableLink.clickable")
+            if btn:
+                btn.click()
+            else:
+                print("No ExpandableLink button in history section")
+        else:
+            print("No propertyHistory section on this page")
+
         html = page.content()
         browser.close()
         return html
@@ -99,10 +114,12 @@ def fetch_gis_url_headers_and_json(page_url):
         return gis_url, gis_headers, gis_payload
 
 
+# not currently being used
 def get_cookies_from_driver(driver) -> dict:
     return {c["name"]: c["value"] for c in driver.get_cookies()}
 
 
+# not currently being used
 def get_gis_request_headers(perf_entries, gis_url) -> dict:
     """
     Scans through the performance log entries for exactly the
@@ -117,6 +134,7 @@ def get_gis_request_headers(perf_entries, gis_url) -> dict:
                 return req["headers"]
 
 
+# not currently being used
 def fetch_redfin_gis_url_cookies_and_header(base_url):
     options = Options()
     # enable performance logging so we can read the network events
@@ -207,6 +225,7 @@ def increment_page_number_and_start_in_gis(currGis):
     return retGis
 
 
+# not currently being used
 def get_homes_data(gis_url, cookies, headers):
     session = requests.Session()
     session.headers.update(headers)
@@ -226,6 +245,7 @@ def get_homes_data(gis_url, cookies, headers):
     return data
 
 
+# not currently being used
 def list_to_json_str(x):
     """ Turn any list (of primitives or dicts) into a compact JSON string """
     if isinstance(x, list):
@@ -291,11 +311,6 @@ def dump_homes_to_csv(full_homes_json):
 def get_specific_info_on_each_property(data_csv):
     df = pd.read_csv(data_csv)
 
-    # url = df.iloc[0]['url']
-    # html = fetch_page_html(url)
-    # with open('html.txt', 'w', encoding='utf-8') as f:
-    #     f.write(html)
-
     # add new necessary columns
     df['Tax Annual Amount'] = None
     df['covered spaces'] = None
@@ -303,7 +318,7 @@ def get_specific_info_on_each_property(data_csv):
     for i, row in df.iterrows():
 
         url = df.iloc[i]['url']
-        html = fetch_page_html(url)
+        html = click_more_property_data_and_fetch_page_html(url)
         # with open('html.txt', 'w', encoding='utf-8') as f:
         #     f.write(html)
         #
@@ -369,10 +384,10 @@ def get_specific_info_on_each_property(data_csv):
             # date
             date = history_row.select_one("div.col-4 > p").get_text(strip=True)
 
-            # 2) description
+            # description
             description = history_row.select_one("div.description-col.col-4 > div").get_text(strip=True)
 
-            # 3) price
+            # price
             price = history_row.select_one("div.price-col.number").get_text(strip=True)
 
             print(f"date = {date}")
@@ -400,9 +415,9 @@ def strip_cluster_bounds_from_gis(gis_url):
 
 def main():
     # # searching a particular zip code and for no pool
-    url = "https://www.redfin.com/zipcode/85297/filter/pool-type=no-private"
-    gis_url, headers, homes_payload = fetch_gis_url_headers_and_json(url)
-    dump_homes_to_csv(homes_payload)
+    # url = "https://www.redfin.com/zipcode/85297/filter/pool-type=no-private"
+    # gis_url, headers, homes_payload = fetch_gis_url_headers_and_json(url)
+    # dump_homes_to_csv(homes_payload)
     get_specific_info_on_each_property('redfin_homes.csv')
 
 
