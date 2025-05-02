@@ -47,6 +47,16 @@ def fetch_html_and_cookies(url, wait=5):
     return html, {c["name"]: c["value"] for c in raw_cookies}
 
 
+def fetch_page_html(url: str) -> str:
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(url, wait_until="domcontentloaded")
+        html = page.content()
+        browser.close()
+        return html
+
+
 def fetch_gis_url_headers_and_json(page_url):
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
@@ -409,6 +419,7 @@ def main():
     print("GIS URL:", gis_url)
     print("Headers:", headers)
     print(payload)
+    print(fetch_page_html(url))
 
 
 if __name__ == "__main__":
