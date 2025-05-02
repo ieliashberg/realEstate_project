@@ -400,38 +400,8 @@ def strip_cluster_bounds_from_gis(gis_url):
 
 def main():
     # # searching a particular zip code and for no pool
-
-    # initial_gis_url = None
-    # cookies = None
-    # headers = None
-    # try:
-    #     found_gis_url_without_cluster_bounds, found_cookies, found_headers = fetch_redfin_gis_url_cookies_and_header(
-    #         url)
-    #
-    #     initial_gis_url = found_gis_url_without_cluster_bounds
-    #     cookies = found_cookies
-    #     headers = found_headers
-    #
-    # except Exception as e:
-    #     print("Error:", e)
-    #
-    # homes_json = get_homes_data(initial_gis_url, cookies, headers)
-    #
-    # # # Useful for if you don't want to run the first part every time and save the dumped json
-    # # with open("redfin_data.json", "r", encoding="utf-8") as f:
-    # #     homes_json = json.load(f)
-    #
-    # dump_homes_to_csv(homes_json)
-    #
-    # get_specific_info_on_each_property('redfin_homes.csv')
-
     url = "https://www.redfin.com/zipcode/85297/filter/pool-type=no-private"
     gis_url, headers, homes_payload = fetch_gis_url_headers_and_json(url)
-
-    # print("GIS URL:", gis_url)
-    # print("Headers:", headers)
-    # print(payload)
-    # print(fetch_page_html(url))
     dump_homes_to_csv(homes_payload)
     get_specific_info_on_each_property('redfin_homes.csv')
 
