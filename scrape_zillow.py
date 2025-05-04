@@ -264,8 +264,7 @@ def dump_homes_to_csv(full_homes_json):
             "mlsId": h.get("mlsId", {}).get("value"),
             "mlsStatus": h.get("mlsStatus"),
             "price": h.get("price", {}).get("value"),
-            "hideSalePrice": h.get("hideSalePrice"),
-            "hoa": h.get("hoa", {}).get("value"),
+            "monthly hoa": h.get("hoa", {}).get("value"),
             "sqFt": h.get("sqFt", {}).get("value"),
             "pricePerSqFt": h.get("pricePerSqFt", {}).get("value"),
             "lotSize": h.get("lotSize", {}).get("value"),
@@ -284,14 +283,13 @@ def dump_homes_to_csv(full_homes_json):
             "countryCode": h.get("countryCode"),
             "soldDate": h.get("soldDate"),
             "yearBuilt": h.get("yearBuilt", {}).get("value"),
-            "dom": h.get("dom"),
+            "dom": h.get("dom", {}).get("value"),
             "listingAgentName": h.get("listingAgent", {}).get("name"),
             "listingAgentRedfinId": h.get("listingAgent", {}).get("redfinAgentId"),
             "url": "https://www.redfin.com" + h.get("url"),
             "isNewConstruction": h.get("isNewConstruction"),
             "listingRemarks": h.get("listingRemarks"),
             "businessMarketId": h.get("businessMarketId"),
-            "remarksAccessLevel": h.get("remarksAccessLevel"),
             "propertyType": h.get("propertyType"),
             "listingType": h.get("listingType"),
             "propertyId": h.get("propertyId"),
@@ -399,6 +397,20 @@ def get_specific_info_on_each_property(data_csv):
         if tax_label_node:
             tax_amount_span = tax_label_node.find_next("span")
             df.loc[i, 'Tax Annual Amount'] = tax_amount_span.text
+
+        # get the listing agent(s)
+        agents = soup.find_all("span", class_="agent-basic-details--heading")
+        for agent in agents:
+            agent_name = agent.find("span").get_text(strip=True)
+            print(agent_name)
+
+        agents = soup.find_all("div", class_="agent-info-item flex flex-wrap")
+        for agent in agents:
+            agent_name = agent.find("span", class_="agent-basic-details--heading").find("span").get_text(strip=True)
+            full_broker_text = soup.select_one("span.agent-basic-details--broker > span").get_text(strip=True)
+            agent_broker = full_broker_text.replace("•", "").strip()  # remove the dot and trim
+            print(agent_name)
+            print(agent_broker)
 
     print("updated redfin_homes.csv file")
     df.to_csv("redfin_homes.csv", index=False)
