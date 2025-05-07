@@ -79,59 +79,6 @@ def fetch_gis_url_headers_and_json(page_url):
         return gis_url, gis_headers, gis_payload
 
 
-def dump_homes_to_csv(full_homes_json):
-    homes_list = []
-    homes = full_homes_json.get("payload", {}).get("homes", [])
-    if not homes:
-        raise RuntimeError("No homes found in your JSON")
-
-    for h in homes:
-        currHome = {
-            "mlsId": h.get("mlsId", {}).get("value"),
-            "mlsStatus": h.get("mlsStatus"),
-            "price": h.get("price", {}).get("value"),
-            "monthly hoa": h.get("hoa", {}).get("value"),
-            "sqFt": h.get("sqFt", {}).get("value"),
-            "pricePerSqFt": h.get("pricePerSqFt", {}).get("value"),
-            "lotSize": h.get("lotSize", {}).get("value"),
-            "beds": h.get("beds"),
-            "baths": h.get("baths"),
-            "location": h.get("location", {}).get("value"),
-            "stories": h.get("stories"),
-            "latitude": h.get("latLong", {}).get("value", {}).get("latitude"),
-            "longitude": h.get("latLong", {}).get("value", {}).get("longitude"),
-            "streetLine": h.get("streetLine", {}).get("value"),
-            "unitNumber": h.get("unitNumber", {}).get("value"),
-            "city": h.get("city"),
-            "state": h.get("state"),
-            "zip": h.get("zip"),
-            "postalCode": h.get("postalCode", {}).get("value"),
-            "countryCode": h.get("countryCode"),
-            "soldDate": h.get("soldDate"),
-            "yearBuilt": h.get("yearBuilt", {}).get("value"),
-            "dom": h.get("dom", {}).get("value"),
-            "listingAgentName": h.get("listingAgent", {}).get("name"),
-            "listingAgentRedfinId": h.get("listingAgent", {}).get("redfinAgentId"),
-            "url": "https://www.redfin.com" + h.get("url"),
-            "isNewConstruction": h.get("isNewConstruction"),
-            "listingRemarks": h.get("listingRemarks"),
-            "businessMarketId": h.get("businessMarketId"),
-            "propertyType": h.get("propertyType"),
-            "listingType": h.get("listingType"),
-            "propertyId": h.get("propertyId"),
-            "listingId": h.get("listingId"),
-            "dataSourceId": h.get("dataSourceId"),
-            "marketId": h.get("marketId"),
-            "searchStatus": h.get("searchStatus")
-        }
-        homes_list.append(currHome)
-
-    # write out homes to redfin_homes.csv
-    df = pd.DataFrame(homes_list)
-    df.to_csv("redfin_homes.csv", index=False)
-    print(f"Saved {len(df)} rows to redfin_homes.csv")
-
-
 def get_schools(soup):
     schools = []
     # find the outer school table container:
@@ -279,47 +226,27 @@ def remove_commas_and_dollarSign(input_str: str) -> str:
 
 
 def get_specific_info_on_each_property(homes_json):
-    home = homes_json["payload"]["homes"][0]
-    home['url'] = "https://www.redfin.com" + home['url']
-    print(home['url'])
-    html = click_more_property_data_and_fetch_page_html(home['url'])
-    soup = BeautifulSoup(html, "html.parser")
+    homes = homes_json["payload"]["homes"]
+    for home in homes:
+        home['url'] = "https://www.redfin.com" + home['url']
+        print(home['url'])
+        html = click_more_property_data_and_fetch_page_html(home['url'])
+        soup = BeautifulSoup(html, "html.parser")
 
-    home['schools'] = get_schools(soup)
+        home['schools'] = get_schools(soup)
 
-    home['price_history'] = get_price_history(soup)
+        home['price_history'] = get_price_history(soup)
 
-    home['hoa'] = get_monthly_hoa(soup)
+        home['hoa'] = get_monthly_hoa(soup)
 
-    home['covered_spaces'] = get_covered_spaces(soup)
+        home['covered_spaces'] = get_covered_spaces(soup)
 
-    home['tax_annual_amount'] = get_tax_annual(soup)
+        home['tax_annual_amount'] = get_tax_annual(soup)
 
-    agentsInfo = get_agents_info(soup)
-    home['agent_name(s)'] = agentsInfo['agent_name(s)']
-    home['agent_broker(s)'] = agentsInfo['agent_broker(s)']
+        agentsInfo = get_agents_info(soup)
+        home['agent_name(s)'] = agentsInfo['agent_name(s)']
+        home['agent_broker(s)'] = agentsInfo['agent_broker(s)']
 
-    home['list_date'] = get_list_date(home)
-    # for home in homes:
-    #     home['url'] = "https://www.redfin.com" + home['url']
-    #     print(home['url'])
-    #     html = click_more_property_data_and_fetch_page_html(home['url'])
-    #     soup = BeautifulSoup(html, "html.parser")
-    #
-    #     home['schools'] = get_schools(soup)
-    #
-    #     home['price_history'] = get_price_history(soup)
-    #
-    #     home['hoa'] = get_monthly_hoa(soup)
-    #
-    #     home['covered_spaces'] = get_covered_spaces(soup)
-    #
-    #     home['tax_annual_amount'] = get_tax_annual(soup)
-    #
-    #     agentsInfo = get_agents_info(soup)
-    #     home['agent_name(s)'] = agentsInfo['agent_name(s)']
-    #     home['agent_broker(s)'] = agentsInfo['agent_broker(s)']
-    #
-    #     home['list_date'] = get_list_date(home)
+        home['list_date'] = get_list_date(home)
 
-    return home
+    return homes
