@@ -1,8 +1,7 @@
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError, Error as PlaywrightError
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dateutil import parser
-import pandas as pd
 import json
 import time
 import re
@@ -13,35 +12,65 @@ def get_homes_info(url: str):
     return get_specific_info_on_each_property(homes_payload)
 
 
-def click_more_property_data_and_fetch_page_html(url: str) -> str:
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
-        context = browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/135.0.0.0 Safari/537.36"
-            )
-        )
+def click_more_property_data_and_fetch_page_html(url: str, max_attempts: int = 3, headless: bool = True) -> str | None:
+    """
+    Navigate to `url`, attempt to click the "More Property History" button,
+    and return the final page HTML, retrying up to `max_attempts` times on failure.
+    """
+    for attempt in range(1, max_attempts + 1):
+        browser = None
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=headless)
+                context = browser.new_context(
+                    user_agent=(
+                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/135.0.0.0 Safari/537.36"
+                    )
+                )
+                page = context.new_page()
 
-        page = context.new_page()
-        page.goto(url, wait_until="domcontentloaded")
+                # 1) load the page
+                page.goto(url, wait_until="domcontentloaded", timeout=15_000)
 
-        # wait for redfin to load in the button if it's there
-        time.sleep(1)
+                # 2) give the JS a moment
+                time.sleep(1)
 
-        # click see more property history button
-        property_history_div = page.query_selector("div.sectionContainer[data-rf-test-id='propertyHistory']")
-        if property_history_div:
-            btn = property_history_div.query_selector("button.ExpandableLink.clickable")
-            if btn:
-                btn.click()
-        else:
-            print("No propertyHistory section on this page")
+                # 3) attempt to click the property-history button
+                try:
+                    btn = page.locator(
+                        'div.sectionContainer[data-rf-test-id="propertyHistory"] '
+                        'button.ExpandableLink.clickable',
+                        has_text="See all property history"
+                    )
+                    btn.wait_for(state="visible", timeout=5_000)
+                    btn.click(timeout=5_000)
+                except TimeoutError:
+                    print(f"[WARN] Attempt {attempt}: no history button, or timed out on {url}")
+                except PlaywrightError as e:
+                    print(f"[WARN] Attempt {attempt}: click failed on {url}: {e}")
 
-        html = page.content()
-        browser.close()
-        return html
+                # 4) give the post-click UI a moment
+                time.sleep(0.5)
+                html = page.content()
+                return html
+
+        except Exception as e:
+            print(f"[ERROR] Attempt {attempt}/{max_attempts} failed for {url}: {e}")
+            if attempt < max_attempts:
+                time.sleep(1)   # brief back-off before retrying
+                continue
+            else:
+                print(f"[ERROR] All {max_attempts} attempts failed for {url}")
+                return None
+
+        finally:
+            if browser:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
 
 
 def fetch_gis_url_headers_and_json(page_url):
@@ -157,7 +186,7 @@ def get_price_history(soup):
         # price
         price = history_row.select_one("div.price-col.number").get_text(strip=True)
         if price is not None:
-            price = remove_commas_and_dollarSign(price)
+            price = clean_price(price)
 
         price_history.append({
             "date": date,
@@ -192,7 +221,7 @@ def get_tax_annual(soup):
     tax_annual = span.text if span else None
     # remove leading '$' if present
     if tax_annual is not None:
-        return remove_commas_and_dollarSign(tax_annual)
+        return clean_price(tax_annual)
 
 
 def get_agents_info(soup):
@@ -213,40 +242,55 @@ def get_agents_info(soup):
 
 def get_list_date(home):
     dom = int(home.get('dom', {}).get('value'))
-    date = datetime.now() - timedelta(days=dom)
+    date = datetime.now(timezone.utc) - timedelta(days=dom)
     return date.isoformat()[:10]
 
 
-def remove_commas_and_dollarSign(input_str: str) -> str:
-    if input_str.startswith('$'):
-        input_str = input_str[1:]
+def clean_price(input_str: str) -> str:
+    # drop '(' and everything after
+    s = input_str.split('(')[0]
+    # remove any word starting with '\u' up to the next space
+    s = re.sub(r'\\u[^ ]*', '', s)
+    # strip leading dollar sign
+    if s.startswith('$'):
+        s = s[1:]
     # remove all commas
-    output_str = input_str.replace(',', '')
-    return output_str
+    s = s.replace(',', '')
+    if s == "\u2014":
+        s = ""
+    # trim whitespace
+    return s.strip()
 
 
 def get_specific_info_on_each_property(homes_json):
-    homes = homes_json["payload"]["homes"]
+    homes = homes_json["payload"]["homes"][0]
     for home in homes:
-        home['url'] = "https://www.redfin.com" + home['url']
+        home['url'] = "https://www.redfin.com" + home.get('url')
         print(home['url'])
-        html = click_more_property_data_and_fetch_page_html(home['url'])
-        soup = BeautifulSoup(html, "html.parser")
+        try:
+            html = click_more_property_data_and_fetch_page_html(home['url'])
+            if not html:
+                continue
+            soup = BeautifulSoup(html, "html.parser")
 
-        home['schools'] = get_schools(soup)
+            home['schools'] = get_schools(soup)
 
-        home['price_history'] = get_price_history(soup)
+            home['price_history'] = get_price_history(soup)
 
-        home['hoa'] = get_monthly_hoa(soup)
+            home['hoa'] = get_monthly_hoa(soup)
 
-        home['covered_spaces'] = get_covered_spaces(soup)
+            home['covered_spaces'] = get_covered_spaces(soup)
 
-        home['tax_annual_amount'] = get_tax_annual(soup)
+            home['tax_annual_amount'] = get_tax_annual(soup)
 
-        agentsInfo = get_agents_info(soup)
-        home['agent_name(s)'] = agentsInfo['agent_name(s)']
-        home['agent_broker(s)'] = agentsInfo['agent_broker(s)']
+            agentsInfo = get_agents_info(soup)
+            home['agent_name(s)'] = agentsInfo['agent_name(s)']
+            home['agent_broker(s)'] = agentsInfo['agent_broker(s)']
 
-        home['list_date'] = get_list_date(home)
+            home['list_date'] = get_list_date(home)
+
+        except Exception as e:
+            print(f"[ERROR] processing {home['url']} raised {type(e).__name__}: {e}")
+            continue
 
     return homes
