@@ -8,10 +8,10 @@ def main():
     url = "https://www.redfin.com/zipcode/85297/filter/pool-type=no-private"
     homes = get_homes_info(url)   # gets all homes info as a big json file
 
-    # with open("new.json", "r") as original_json:
-    #     homes = json.load(original_json)
     with open("dumps/homes.json", "w") as f:
         json.dump(homes, f, indent=4)  # `indent=4` makes it pretty-printed
+    # with open("dumps/homes.json", "r") as original_json:
+    #     homes = json.load(original_json)
     # load_to_db(homes)
 
 

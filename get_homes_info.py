@@ -85,7 +85,7 @@ def fetch_gis_url_headers_and_json(page_url):
         )
         page = context.new_page()
 
-        # 1) Wait until network is quiet
+        # wait until network is quiet
         page.goto(page_url)
         time.sleep(1)
 
@@ -246,7 +246,7 @@ def get_list_date(home):
     return date.isoformat()[:10]
 
 
-def clean_price(input_str: str) -> str:
+def clean_price(input_str: str):
     # drop '(' and everything after
     s = input_str.split('(')[0]
     # remove any word starting with '\u' up to the next space
@@ -259,11 +259,17 @@ def clean_price(input_str: str) -> str:
     if s == "\u2014":
         s = ""
     # trim whitespace
-    return s.strip()
+    s = s.strip()
+
+    try:
+        # handle floats just in case
+        return int(float(s))
+    except ValueError:
+        return None
 
 
 def get_specific_info_on_each_property(homes_json):
-    homes = homes_json["payload"]["homes"][0]
+    homes = homes_json["payload"]["homes"]
     for home in homes:
         home['url'] = "https://www.redfin.com" + home.get('url')
         print(home['url'])
@@ -276,8 +282,6 @@ def get_specific_info_on_each_property(homes_json):
             home['schools'] = get_schools(soup)
 
             home['price_history'] = get_price_history(soup)
-
-            home['hoa'] = get_monthly_hoa(soup)
 
             home['covered_spaces'] = get_covered_spaces(soup)
 
