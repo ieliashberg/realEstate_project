@@ -2,14 +2,99 @@ from playwright.sync_api import sync_playwright, TimeoutError, Error as Playwrig
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 from dateutil import parser
+from user_agents import get_ua
 import json
 import time
 import re
+from curl_cffi import requests
+
+base_headers = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "Accept-Language": "en",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Sec-Ch-Ua": '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+
+def put_ua_in_header() -> dict[str, str]:
+    ua = get_ua()
+    return {
+        **base_headers,
+        "User-Agent": ua,
+    }
+
+
+def fetch_html_via_https(url: str, proxy: dict[str, str] | None = None):
+    header_with_ua = put_ua_in_header()
+    resp = requests.get(
+        url=url,
+        headers=header_with_ua,
+        proxies=proxy,
+        impersonate="chrome124"  # curl_cffi convenience for User-Agent spoofing
+    )
+    resp.raise_for_status()
+    return resp.text
 
 
 def get_homes_info(url: str):
     gis_url, headers, homes_payload = fetch_gis_url_headers_and_json(url)
     return get_specific_info_on_each_property(homes_payload)
+
+
+def extract_events(html: str):
+    """
+    Find the first occurrence of '"events"' in the HTML, then
+    pull out the {...} that follows, sanitize it for JSON, and
+    return the parsed Python object under the "events" key.
+    """
+    key = '"events"'
+    i = html.find(key)
+    if i == -1:
+        raise ValueError("No 'events' key found in HTML")
+
+    # find the first '{' after '"events":'
+    brace_start = html.find("{", i)
+    if brace_start == -1:
+        raise ValueError("No opening brace after 'events'")
+
+    # walk forward, counting braces, until we close the top‐level object
+    depth = 0
+    for j, ch in enumerate(html[brace_start:], start=brace_start):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+
+        # once we've closed the very first '{', j is the end
+        if depth == 0:
+            brace_end = j + 1
+            break
+    else:
+        raise ValueError("Did not find matching closing brace for events object")
+
+    raw = html[brace_start:brace_end]
+
+    # sanitize trailing commas & JS-isms
+    raw = re.sub(r",\s*([}\]])", r"\1", raw)  # drop trailing commas
+    raw = re.sub(r"\bundefined\b", "null", raw)  # undefined → null
+
+    # parse
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as e:
+        snippet = raw[max(0, e.pos - 40):e.pos + 40]
+        raise ValueError(f"JSON parse error at {e.pos}: …{snippet!r}") from e
+
+    # return just the events array (or the whole object if you prefer)
+    return parsed.get("events", parsed)
 
 
 def click_more_property_data_and_fetch_page_html(url: str, max_attempts: int = 3, headless: bool = True) -> str | None:
@@ -21,12 +106,10 @@ def click_more_property_data_and_fetch_page_html(url: str, max_attempts: int = 3
         browser = None
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=headless)
+                browser = p.chromium.launch()
                 context = browser.new_context(
                     user_agent=(
-                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/135.0.0.0 Safari/537.36"
+                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
                     )
                 )
                 page = context.new_page()
@@ -59,7 +142,7 @@ def click_more_property_data_and_fetch_page_html(url: str, max_attempts: int = 3
         except Exception as e:
             print(f"[ERROR] Attempt {attempt}/{max_attempts} failed for {url}: {e}")
             if attempt < max_attempts:
-                time.sleep(1)   # brief back-off before retrying
+                time.sleep(1)  # brief back-off before retrying
                 continue
             else:
                 print(f"[ERROR] All {max_attempts} attempts failed for {url}")
@@ -77,11 +160,7 @@ def fetch_gis_url_headers_and_json(page_url):
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=False)
         context = browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/135.0.0.0 Safari/537.36"
-            )
+            user_agent=get_ua()
         )
         page = context.new_page()
 
@@ -108,7 +187,7 @@ def fetch_gis_url_headers_and_json(page_url):
         return gis_url, gis_headers, gis_payload
 
 
-def get_schools(soup):
+def get_schools_via_html(soup):
     schools = []
     # find the outer school table container:
     schools_container = soup.find("div", class_="schools-content").find_all("div", class_="flex align-center")
@@ -169,7 +248,7 @@ def get_schools(soup):
     return schools
 
 
-def get_price_history(soup):
+def get_price_history_via_html(soup):
     price_history = []
 
     # get price history information (along with details)
@@ -197,7 +276,7 @@ def get_price_history(soup):
     return price_history
 
 
-def get_monthly_hoa(soup):
+def get_monthly_hoa_via_html(soup):
     node = soup.find(string="Association Fee: ")
     if node:
         cost = node.find_next("span").text.strip().replace("$", "")
@@ -209,13 +288,13 @@ def get_monthly_hoa(soup):
     return monthly
 
 
-def get_covered_spaces(soup):
+def get_covered_spaces_html(soup):
     node = soup.find(string="Covered Spaces: ")
     span = node.find_next("span") if node else None
     return int(span.text) if span and span.text.isdigit() else None
 
 
-def get_tax_annual(soup):
+def get_tax_annual_via_html(soup):
     tax_node = soup.find(string="Tax Annual Amount: ")
     span = tax_node.find_next("span") if tax_node else None
     tax_annual = span.text if span else None
@@ -224,7 +303,7 @@ def get_tax_annual(soup):
         return clean_price(tax_annual)
 
 
-def get_agents_info(soup):
+def get_agents_info_via_html(soup):
     agent_container = soup.find_all("div", class_="agent-info-item flex flex-wrap")
     agent_name = ""
     agent_broker = ""
@@ -268,30 +347,191 @@ def clean_price(input_str: str):
         return None
 
 
+def get_schools(data):
+    schools = []
+    schools_json = data.get("schoolsAndDistrictsInfo", {}).get("servingThisHomeSchools")
+    for school in schools_json:
+        is_public = False
+        is_elementary = False
+        is_middle = False
+        is_high = False
+
+        name = school.get("name")
+        rating = school.get("greatSchoolsRating")
+        distance_mi = school.get("distanceInMiles")
+
+        institutionType = school.get("institutionType")
+        if institutionType.startswith("Public"):
+            is_public = True
+
+        grade_range = school.get("gradeRanges")
+
+        if "K-" in grade_range:
+            is_elementary = True
+        if "-7" in grade_range or "-8" in grade_range:
+            is_middle = True
+        if "-12" in grade_range:
+            is_high = True
+
+        schools.append({
+            "name": name,
+            "is_elementary": is_elementary,
+            "is_middle": is_middle,
+            "is_high": is_high,
+            "is_public": is_public,
+            "rating": rating,
+            "dist": distance_mi,
+        })
+
+    return schools
+
+
+def get_price_history(data):
+    price_history = []
+
+    # get price history information (along with details)
+    price_history_events = data.get("propertyHistoryInfo", {}).get("events") or []
+    for event in price_history_events:
+        # date
+        ts = event.get("eventDate", 0)
+        dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
+        date = dt.date().isoformat()
+
+        # description
+        description = event.get("eventDescription")
+
+        # price
+        price = event.get("price")
+        if price is not None:
+            price = price
+
+        price_history.append({
+            "date": date,
+            "description": description,
+            "price": price
+        })
+
+    return price_history
+
+
+def get_covered_spaces(data):
+    # drill down to the list of super-groups
+    super_groups = data.get("amenitiesInfo", {}).get("superGroups") or []
+
+    covered_value = None
+    for sg in super_groups:
+        for group in sg.get("amenityGroups") or []:
+            # look through each amenity entry
+            for entry in group.get("amenityEntries") or []:
+                if entry.get("amenityName") == "Covered Spaces":
+                    # grab the first (and only) value
+                    covered_value = entry.get("amenityValues")[0] or None
+                    break
+            if covered_value is not None:
+                break
+        if covered_value is not None:
+            break
+    return covered_value
+
+
+def get_tax_annual(data):
+    # drill down to the list of super-groups
+    super_groups = data.get("amenitiesInfo", {}).get("superGroups") or []
+
+    tax_annual = None
+    for sg in super_groups:
+        for group in sg.get("amenityGroups") or []:
+            # look through each amenity entry
+            for entry in group.get("amenityEntries") or []:
+                if entry.get("amenityName") == "Tax Annual Amount":
+                    # grab the first (and only) value
+                    tax_annual = entry.get("amenityValues")[0] or []
+                    break
+            if tax_annual is not None:
+                break
+        if tax_annual is not None:
+            break
+    if tax_annual is not None:
+        tax_annual = clean_price(tax_annual)
+    return tax_annual
+
+
+def get_agents_info(data):
+    agent_name = data.get("amenitiesInfo", {}).get("mlsDisclaimerInfo", {}).get("listingAgentName")
+    agent_broker = data.get("amenitiesInfo", {}).get("mlsDisclaimerInfo", {}).get("listingBrokerName")
+    return ({'agent_name': agent_name,
+             'agent_broker': agent_broker
+             })
+
+
+def get_property_json(html):
+    m = re.search(
+        r'belowTheFold".*?"text"\s*:\s*"((?:\\.|[^"\\])*)"',  # search for the the json dump
+        html,
+        flags=re.DOTALL
+    )
+    if not m:
+        raise RuntimeError("Couldn't find the belowTheFold text block")
+
+    raw = m.group(1)
+
+    # un-escape JavaScript-style unicode (e.g. \u002F → /) and other escapes
+    #    (this also turns \\n, \\" etc. into real newlines and quotes)
+    decoded = bytes(raw, 'utf-8').decode('unicode_escape')
+
+    # strip off the "{}&&" prefix that Redfin tacks on to avoid XSSI
+    if decoded.startswith('{}&&'):
+        decoded = decoded.split('&&', 1)[1]
+
+    # parse into json
+    return json.loads(decoded).get("payload")
+
+
 def get_specific_info_on_each_property(homes_json):
     homes = homes_json["payload"]["homes"]
     for home in homes:
         home['url'] = "https://www.redfin.com" + home.get('url')
         print(home['url'])
         try:
-            html = click_more_property_data_and_fetch_page_html(home['url'])
+            # html = click_more_property_data_and_fetch_page_html(home['url'])
+            html = fetch_html_via_https(home['url'])
             if not html:
                 continue
-            soup = BeautifulSoup(html, "html.parser")
 
-            home['schools'] = get_schools(soup)
+            data = get_property_json(html)
+            # with open('example_home_from_redfin.json', 'w', encoding='utf-8') as f:
+            #     # dump `data` as JSON into the file, with nice indentation
+            #     json.dump(data, f, ensure_ascii=False, indent=2)
 
-            home['price_history'] = get_price_history(soup)
+            home['schools'] = get_schools(data)
 
-            home['covered_spaces'] = get_covered_spaces(soup)
+            home['price_history'] = get_price_history(data)
 
-            home['tax_annual_amount'] = get_tax_annual(soup)
+            home['covered_spaces'] = get_covered_spaces(data)
 
-            agentsInfo = get_agents_info(soup)
-            home['agent_name(s)'] = agentsInfo['agent_name(s)']
-            home['agent_broker(s)'] = agentsInfo['agent_broker(s)']
+            home['tax_annual_amount'] = get_tax_annual(data)
+
+            agentsInfo = get_agents_info(data)
+            home['agent_name'] = agentsInfo['agent_name']
+            home['agent_broker'] = agentsInfo['agent_broker']
 
             home['list_date'] = get_list_date(home)
+
+            # soup = BeautifulSoup(html, "html.parser")
+            #
+            # home['schools'] = get_schools(soup)
+            #
+            # home['price_history'] = get_price_history(soup)
+            #
+            # home['covered_spaces'] = get_covered_spaces(soup)
+            #
+            # home['tax_annual_amount'] = get_tax_annual(soup)
+            #
+            # agentsInfo = get_agents_info(soup)
+            # home['agent_name(s)'] = agentsInfo['agent_name(s)']
+            # home['agent_broker(s)'] = agentsInfo['agent_broker(s)']
+            #
+            # home['list_date'] = get_list_date(home)
 
         except Exception as e:
             print(f"[ERROR] processing {home['url']} raised {type(e).__name__}: {e}")

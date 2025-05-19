@@ -69,10 +69,6 @@ def upsert_property(home, session):
                     if col.primary_key:
                         continue  # skip pk field
                     name = attr.key
-                    # The following attributes don't change so I don't care about recording the change made to them
-                    # if (name == 'beds' or name == 'baths' or name == 'sqft' or name == 'covered_spaces'
-                    #         or name == 'stories' or name == 'tax_annual_amount' or name == 'hoa'
-                    #         or name == 'is_on_market'):
                     old_val = getattr(old_prop, name)
                     new_val = getattr(new_prop, name)
                     if old_val != new_val:
@@ -160,8 +156,8 @@ def upsert_listing(home, propertyID, session):
         list_date=home.get('list_date'),
         current_status=home.get('mlsStatus'),       # mls listing, ex: Active, closed, pending etc.)
         url=home.get('url'),
-        agent_name=home.get('agent_name(s)'),
-        broker=home.get('agent_broker(s)'),
+        agent_name=home.get('agent_names'),
+        broker=home.get('agent_brokers'),
         isNewConstruction=home.get('isNewConstruction'),
         current_price=home.get('price', {}).get('value')
     )
@@ -254,31 +250,6 @@ def bootstrap_price_histories(listing_id, home, session):
         raise
 
 
-# def upsert_school(school_container, session):
-#     new_school = School(
-#         name=school_container['name'],
-#         rating=school_container.get('rating'),
-#         is_public=school_container.get('is_public'),
-#         is_elementary=school_container.get('is_elementary'),
-#         is_middle=school_container.get('is_middle'),
-#         is_high=school_container.get('is_high'),
-#         og_description=school_container.get('og_description')
-#     )
-#     try:
-#         old_school = session.query(School).filter_by(name=school_container.get('name')).first()
-#         if not old_school:
-#             session.add(new_school)
-#             session.flush()
-#         elif old_school.rating != school_container.get('rating'):
-#             setattr(old_school, 'rating', new_school.rating)
-#             setattr(old_school, 'og_description', new_school.og_description)
-#             return new_school.school_id
-#
-#     except Exception:
-#         print("Error upserting school")
-#         session.rollback()
-#         raise
-
 def upsert_school(school_container, session) -> int:
     """
     Insert or update a School and always return its school_id.
@@ -291,13 +262,12 @@ def upsert_school(school_container, session) -> int:
     )
     if not existing:
         new_school = School(
-            name=school_container['name'],
+            name=school_container.get('name'),
             rating=school_container.get('rating'),
             is_public=school_container.get('is_public'),
             is_elementary=school_container.get('is_elementary'),
             is_middle=school_container.get('is_middle'),
             is_high=school_container.get('is_high'),
-            og_description=school_container.get('og_description'),
         )
         session.add(new_school)
         session.flush()  # populates new_school.school_id
@@ -307,9 +277,6 @@ def upsert_school(school_container, session) -> int:
         updated = False
         if existing.rating != school_container.get('rating'):
             existing.rating = school_container.get('rating')
-            updated = True
-        if existing.og_description != school_container.get('og_description'):
-            existing.og_description = school_container.get('og_description')
             updated = True
         if updated:
             session.flush()
