@@ -1,5 +1,6 @@
 from playwright.sync_api import sync_playwright, TimeoutError, Error as PlaywrightError
-from bs4 import BeautifulSoup
+from dataBase import SessionLocal, Zip_To_Url
+from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timedelta, timezone
 from dateutil import parser
 from user_agents import get_ua
@@ -45,10 +46,11 @@ def fetch_html_via_https(url: str, proxy: dict[str, str] | None = None):
 
 
 def get_homes_info(url: str):
-    gis_url, headers, homes_payload = fetch_gis_url_headers_and_json(url)
+    homes_payload = fetch_homes_json(url)
     return get_specific_info_on_each_property(homes_payload)
 
 
+# not currently used
 def extract_events(html: str):
     """
     Find the first occurrence of '"events"' in the HTML, then
@@ -97,6 +99,108 @@ def extract_events(html: str):
     return parsed.get("events", parsed)
 
 
+def fetch_homes_json(url):
+    zipcode = None
+    m = re.search(r"/zipcode/(\d+)", url)
+    if m:
+        zipcode = m.group(1)
+    session = SessionLocal()
+    try:
+        # try the database
+        record = (
+            session.query(Zip_To_Url)
+            .filter(Zip_To_Url.zip_code == zipcode)
+            .one_or_none()
+        )
+        if record:
+            for_sale_homes_response = fetch_html_via_https(record.for_sale_request_url)
+            sold_homes_response = fetch_html_via_https(record.sold_request_url)
+            for_sale_homes_response = strip_json_beginning(for_sale_homes_response)
+            sold_homes_response = strip_json_beginning(sold_homes_response)
+            if for_sale_homes_response.get("errorMessage") == "Success" and sold_homes_response.get("errorMessage") == "Success":
+                for_sale_homes = for_sale_homes_response.get("payload", {}).get("homes")
+                sold_homes = sold_homes_response.get("payload", {}).get("homes")
+
+                combined_homes = for_sale_homes + sold_homes
+                return combined_homes
+
+        # database miss so fall back to playwright fetch
+        for_sale_homes_json, for_sale_request_url = fetch_homes_json_via_playwright(url)
+        sold_homes_json, sold_request_url = fetch_homes_json_via_playwright(url + "/filter/include=sold-3mo")
+
+        for_sale_homes = for_sale_homes_json.get("payload", {}).get("homes")
+        sold_homes = sold_homes_json.get("payload", {}).get("homes")
+
+        combined_homes = for_sale_homes + sold_homes
+        with open('dumps/combined_homes.json', 'w', encoding='utf-8') as f:
+            # dump `data` as JSON into the file, with nice indentation
+            json.dump(combined_homes, f, ensure_ascii=False, indent=2)
+
+        # persist for next time
+        new_row = Zip_To_Url(
+            zip_code=zipcode,
+            sold_request_url=sold_request_url,
+            for_sale_request_url=for_sale_request_url,
+            last_updated=datetime.now()
+        )
+        session.add(new_row)
+        session.commit()
+
+        return combined_homes
+
+    except SQLAlchemyError as db_err:
+        session.rollback()
+        # log the error, or re-raise if you want upstream handling
+        print(f"[DB ERROR] could not update zip_to_bounds for {zipcode}: {db_err}")
+        raise
+
+    except Exception as e:
+        session.rollback()
+        # handle playwright or other failures if you like
+        print(f"[ERROR] fetch_bounds_for_zip({zipcode}) failed: {e}")
+        raise
+
+    finally:
+        session.close()
+
+
+def fetch_homes_json_via_playwright(page_url):
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=False)
+        context = browser.new_context(
+            user_agent=get_ua()
+        )
+        page = context.new_page()
+
+        # wait until network is quiet
+        page.goto(page_url)
+        time.sleep(1)
+
+        # 2) Prepare to catch the GIS response
+        #    The lambda will be evaluated on every response: we pick the one whose URL contains "/stingray/api/gis"
+        with page.expect_response(lambda response: "/stingray/api/gis?" in response.url, timeout=10_000) as resp_info:
+            # 3) Trigger the map‐refresh that fires that request
+            page.click("[data-rf-test-id='map-zoom-control-minus'] button")
+        gis_response = resp_info.value
+        gis_request_url = gis_response.url
+
+        raw_text = gis_response.text()
+        if raw_text.startswith("{}&&"):
+            raw_text = raw_text.split("&&", 1)[1]
+        gis_payload = json.loads(raw_text)
+
+        browser.close()
+        return gis_payload, gis_request_url
+
+
+def strip_json_beginning(raw_text: str):
+    # raw_text is already the response body
+    if raw_text.startswith("{}&&"):
+        raw_text = raw_text.split("&&", 1)[1]
+    return json.loads(raw_text)
+
+
+# not currently used
 def click_more_property_data_and_fetch_page_html(url: str, max_attempts: int = 3, headless: bool = True) -> str | None:
     """
     Navigate to `url`, attempt to click the "More Property History" button,
@@ -156,37 +260,7 @@ def click_more_property_data_and_fetch_page_html(url: str, max_attempts: int = 3
                     pass
 
 
-def fetch_gis_url_headers_and_json(page_url):
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=False)
-        context = browser.new_context(
-            user_agent=get_ua()
-        )
-        page = context.new_page()
-
-        # wait until network is quiet
-        page.goto(page_url)
-        time.sleep(1)
-
-        # 2) Prepare to catch the GIS response
-        #    The lambda will be evaluated on every response: we pick the one whose URL contains "/stingray/api/gis"
-        with page.expect_response(lambda response: "/stingray/api/gis?" in response.url, timeout=10_000) as resp_info:
-            # 3) Trigger the map‐refresh that fires that request
-            page.click("[data-rf-test-id='map-zoom-control-minus'] button")
-        gis_response = resp_info.value
-
-        # 4) Pull out URL, request headers, and JSON body
-        gis_url = gis_response.url
-        gis_headers = gis_response.request.headers
-        raw_text = gis_response.text()
-        if raw_text.startswith("{}&&"):
-            raw_text = raw_text.split("&&", 1)[1]
-        gis_payload = json.loads(raw_text)
-
-        browser.close()
-        return gis_url, gis_headers, gis_payload
-
-
+# not currently used
 def get_schools_via_html(soup):
     schools = []
     # find the outer school table container:
@@ -248,6 +322,7 @@ def get_schools_via_html(soup):
     return schools
 
 
+# not currently used
 def get_price_history_via_html(soup):
     price_history = []
 
@@ -276,6 +351,7 @@ def get_price_history_via_html(soup):
     return price_history
 
 
+# not currently used
 def get_monthly_hoa_via_html(soup):
     node = soup.find(string="Association Fee: ")
     if node:
@@ -288,12 +364,14 @@ def get_monthly_hoa_via_html(soup):
     return monthly
 
 
-def get_covered_spaces_html(soup):
+# not currently used
+def get_covered_spaces_via_html(soup):
     node = soup.find(string="Covered Spaces: ")
     span = node.find_next("span") if node else None
     return int(span.text) if span and span.text.isdigit() else None
 
 
+# not currently used
 def get_tax_annual_via_html(soup):
     tax_node = soup.find(string="Tax Annual Amount: ")
     span = tax_node.find_next("span") if tax_node else None
@@ -303,6 +381,7 @@ def get_tax_annual_via_html(soup):
         return clean_price(tax_annual)
 
 
+# not currently used
 def get_agents_info_via_html(soup):
     agent_container = soup.find_all("div", class_="agent-info-item flex flex-wrap")
     agent_name = ""
@@ -321,6 +400,8 @@ def get_agents_info_via_html(soup):
 
 def get_list_date(home):
     dom = int(home.get('dom', {}).get('value'))
+    if dom is None:
+        return None
     date = datetime.now(timezone.utc) - timedelta(days=dom)
     return date.isoformat()[:10]
 
@@ -349,7 +430,7 @@ def clean_price(input_str: str):
 
 def get_schools(data):
     schools = []
-    schools_json = data.get("schoolsAndDistrictsInfo", {}).get("servingThisHomeSchools")
+    schools_json = data.get("schoolsAndDistrictsInfo", {}).get("servingThisHomeSchools") or []
     for school in schools_json:
         is_public = False
         is_elementary = False
@@ -445,7 +526,7 @@ def get_tax_annual(data):
             for entry in group.get("amenityEntries") or []:
                 if entry.get("amenityName") == "Tax Annual Amount":
                     # grab the first (and only) value
-                    tax_annual = entry.get("amenityValues")[0] or []
+                    tax_annual = entry.get("amenityValues")[0] or None
                     break
             if tax_annual is not None:
                 break
@@ -466,7 +547,7 @@ def get_agents_info(data):
 
 def get_property_json(html):
     m = re.search(
-        r'belowTheFold".*?"text"\s*:\s*"((?:\\.|[^"\\])*)"',  # search for the the json dump
+        r'belowTheFold".*?"text"\s*:\s*"((?:\\.|[^"\\])*)"',  # search for the json dump
         html,
         flags=re.DOTALL
     )
@@ -488,8 +569,7 @@ def get_property_json(html):
 
 
 def get_specific_info_on_each_property(homes_json):
-    homes = homes_json["payload"]["homes"]
-    for home in homes:
+    for home in homes_json:
         home['url'] = "https://www.redfin.com" + home.get('url')
         print(home['url'])
         try:
@@ -537,4 +617,4 @@ def get_specific_info_on_each_property(homes_json):
             print(f"[ERROR] processing {home['url']} raised {type(e).__name__}: {e}")
             continue
 
-    return homes
+    return homes_json
