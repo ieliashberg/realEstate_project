@@ -1,34 +1,40 @@
-import json
-import traceback
 from datetime import datetime, timezone, timedelta
-
-from sqlalchemy import select, exists
-from sqlalchemy.exc import SQLAlchemyError
 from dataBase import SessionLocal, School, Property, Price_History, Status_History, Listing, \
     Property_Change, Transaction, Property_School_Join
-from sqlalchemy import inspect, desc
+from sqlalchemy import inspect
+import logging
+from sqlalchemy.exc import SQLAlchemyError
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def load_to_db(homes_json):
-    session = SessionLocal()
-    try:
-        for home in homes_json:
+    for home in homes_json:
+        session = SessionLocal()
+        try:
+            # 1) upsert the property + related tables
             prop_id = upsert_property(home, session)
+
+            # 2) upsert the listing
             upsert_listing(home, prop_id, session)
 
+            # 3) upsert schools
             for school in home.get('schools', []):
                 school_id = upsert_school(school, session)
-                # note the correct order: property_id, school_id, then dist, then session
-                upsert_property_school(
-                    prop_id, school_id, school, session
-                )
+                upsert_property_school(prop_id, school_id, school, session)
 
-        session.commit()
-    except Exception as e:
-        print("Exception occurred in parsing/loading to database:", e)
-        session.rollback()
-    finally:
-        session.close()
+            # 4) commit _this_ property’s transaction
+            session.commit()
+            logger.info(f"Successfully loaded property {home.get('propertyId')}")
+
+        except Exception as e:
+            # rollback only the current session
+            session.rollback()
+            logger.exception(f"Failed to load property {home.get('propertyId')}: {e}")
+
+        finally:
+            session.close()
 
 
 def upsert_property(home, session):
@@ -101,11 +107,11 @@ def upsert_property(home, session):
             bootstrap_sold_histories(new_prop.property_id, home, session)
 
             session.flush()     # gives the transaction table its transactionId
-            print(f"Inserting new property and corresponding transaction table (redfin_id={new_prop.redfin_property_id}), property_id = {new_prop.property_id}")
+            logger.info(f"Inserting new property and corresponding transaction table (redfin_id={new_prop.redfin_property_id}), property_id = {new_prop.property_id}")
 
             return new_prop.property_id
     except Exception as e:
-        print("Error inserting property:", e)
+        logger.exception("Error inserting property:", e)
         session.rollback()
         raise
 
@@ -145,7 +151,7 @@ def bootstrap_sold_histories(property_id, home, session):
             # remember this date for next loop
             last_sale_date = dt
     except Exception:
-        print("Error bootstrapping sold histories")
+        logger.exception("Error bootstrapping sold histories")
         raise
 
 
@@ -156,11 +162,15 @@ def upsert_listing(home, propertyID, session):
         list_date=home.get('list_date'),
         current_status=home.get('mlsStatus'),       # mls listing, ex: Active, closed, pending etc.)
         url=home.get('url'),
-        agent_name=home.get('agent_names'),
-        broker=home.get('agent_brokers'),
+        agent_name=home.get('agent_name'),
+        broker=home.get('agent_broker'),
         isNewConstruction=home.get('isNewConstruction'),
         current_price=home.get('price', {}).get('value')
     )
+
+    # if listing id doesn't exist, skip over making a listing
+    if new_list.redfin_listing_id is None:
+        return
     try:
         old_list = session.query(Listing)\
                .filter_by(redfin_listing_id=home['listingId'])\
@@ -196,12 +206,12 @@ def upsert_listing(home, propertyID, session):
             session.flush()  # gives new_listing.listing_id
 
             bootstrap_price_histories(new_list.listing_id, home, session)
-            print(
+            logger.info(
                 f"Inserting new listing and bootstrapping corresponding price_history table (redfin_id={new_list.redfin_listing_id})")
             return new_list.listing_id
     except Exception as e:
         session.rollback()
-        print("Error inserting listing:", e)
+        logger.exception("Error inserting listing:", e)
         raise
 
 
@@ -242,10 +252,10 @@ def bootstrap_price_histories(listing_id, home, session):
             ))
             prev_price = this_price
         session.flush()
-        print("Finished bootstrapping price history")
+        logger.info("Finished bootstrapping price history")
         return
     except Exception:
-        print("Error bootstrapping price histories")
+        logger.exception("Error bootstrapping price histories")
         session.rollback()
         raise
 
@@ -299,9 +309,10 @@ def upsert_property_school(property_id: int, school_id: int, school, session):
 
         elif old_prop_school.distance != dist:
             old_prop_school.distance = dist
+            old_prop_school.last_updated = datetime.now()
 
     except Exception:
-        print("Error upserting property_school")
+        logger.exception("Error upserting property_school")
         session.rollback()
         raise
 

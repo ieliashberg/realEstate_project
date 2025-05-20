@@ -47,7 +47,11 @@ def fetch_html_via_https(url: str, proxy: dict[str, str] | None = None):
 
 def get_homes_info(url: str):
     homes_payload = fetch_homes_json(url)
-    return get_specific_info_on_each_property(homes_payload)
+    full_homes_payload = get_specific_info_on_each_property(homes_payload)
+    with open('dumps/full_homes_payload.json', 'w', encoding='utf-8') as f:
+        # dump `data` as JSON into the file, with nice indentation
+        json.dump(full_homes_payload, f, ensure_ascii=False, indent=2)
+    return full_homes_payload
 
 
 # not currently used
@@ -399,8 +403,13 @@ def get_agents_info_via_html(soup):
 
 
 def get_list_date(home):
-    dom = int(home.get('dom', {}).get('value'))
-    if dom is None:
+    raw = home.get('dom', {}).get('value')
+    if raw is None:
+        return None   # or some sensible default
+
+    try:
+        dom = int(raw)
+    except (TypeError, ValueError):
         return None
     date = datetime.now(timezone.utc) - timedelta(days=dom)
     return date.isoformat()[:10]
@@ -512,6 +521,8 @@ def get_covered_spaces(data):
                 break
         if covered_value is not None:
             break
+    if covered_value is not None:
+        covered_value = float(covered_value)
     return covered_value
 
 
