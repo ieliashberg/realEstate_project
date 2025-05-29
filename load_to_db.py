@@ -13,18 +13,18 @@ def load_to_db(homes_json):
     for home in homes_json:
         session = SessionLocal()
         try:
-            # 1) upsert the property + related tables
+            # upsert the property + related tables
             prop_id = upsert_property(home, session)
 
-            # 2) upsert the listing
+            # upsert the listing
             upsert_listing(home, prop_id, session)
 
-            # 3) upsert schools
+            # upsert schools
             for school in home.get('schools', []):
                 school_id = upsert_school(school, session)
                 upsert_property_school(prop_id, school_id, school, session)
 
-            # 4) commit _this_ property’s transaction
+            # commit this property’s transaction
             session.commit()
             logger.info(f"Successfully loaded property {home.get('propertyId')}")
 
@@ -58,7 +58,10 @@ def upsert_property(home, session):
         tax_annual_amount=home.get('tax_annual_amount'),
         hoa=home.get('hoa', {}).get('value'),
         builder_name=home.get('newConstructionCommunityInfo', {}).get('builderName'),
-        is_on_market=(home.get('mlsStatus') != "Closed" and home.get('mlsStatus') != "Sold")
+        is_on_market=(home.get('mlsStatus') != "Closed" and home.get('mlsStatus') != "Sold"),
+        current_zestimate=home.get('zestimate'),
+        current_zestimate_low=home.get('zestimate_low'),
+        current_zestimate_high=home.get('zestimate_high')
     )
 
     try:
@@ -66,6 +69,12 @@ def upsert_property(home, session):
             .filter_by(redfin_property_id=new_prop.redfin_property_id) \
             .first()
         if old_prop:
+            prop_id = None
+            skip_fields = {
+                "current_zestimate",
+                "current_zestimate_low",
+                "current_zestimate_high",
+            }
             mapper = inspect(old_prop.__class__)
             #  iterate through all column-based attributes
             for attr in mapper.attrs:
@@ -73,8 +82,11 @@ def upsert_property(home, session):
                 if hasattr(attr, 'columns'):
                     col = attr.columns[0]
                     if col.primary_key:
+                        prop_id = getattr(old_prop, attr.key)
                         continue  # skip pk field
                     name = attr.key
+                    if name in skip_fields:
+                        continue
                     old_val = getattr(old_prop, name)
                     new_val = getattr(new_prop, name)
                     if old_val != new_val:
@@ -87,6 +99,10 @@ def upsert_property(home, session):
                             source="redfin",
                         ))
                         setattr(old_prop, name, new_val)
+
+            if prop_id is not None:
+                update_zestimates(prop_id, new_prop.current_zestimate, new_prop.current_zestimate_low, new_prop.current_zestimate_high,
+            )
 
             # if it was on the market before and now current mlsStatus is "sold"
             if old_prop.is_on_market and home.get('mlsStatus') == "Sold":
@@ -105,6 +121,8 @@ def upsert_property(home, session):
 
             # bootstrap sold histories in transaction table
             bootstrap_sold_histories(new_prop.property_id, home, session)
+
+            # add to the zestimate table
 
             session.flush()     # gives the transaction table its transactionId
             logger.info(f"Inserting new property and corresponding transaction table (redfin_id={new_prop.redfin_property_id}), property_id = {new_prop.property_id}")
@@ -170,6 +188,7 @@ def upsert_listing(home, propertyID, session):
 
     # if listing id doesn't exist, skip over making a listing
     if new_list.redfin_listing_id is None:
+        logger.info("Error Upserting listing, No redfin listing id")
         return
     try:
         old_list = session.query(Listing)\

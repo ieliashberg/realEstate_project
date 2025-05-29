@@ -1,9 +1,10 @@
 from playwright.sync_api import sync_playwright, TimeoutError, Error as PlaywrightError
-from dataBase import SessionLocal, Zip_To_Url
+from dataBase import SessionLocal, Zipcodes
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timedelta, timezone
 from dateutil import parser
 from user_agents import get_ua
+from get_zestimate import get_zestimate
 import json
 import time
 import re
@@ -48,9 +49,9 @@ def fetch_html_via_https(url: str, proxy: dict[str, str] | None = None):
 def get_homes_info(url: str):
     homes_payload = fetch_homes_json(url)
     full_homes_payload = get_specific_info_on_each_property(homes_payload)
-    with open('dumps/full_homes_payload.json', 'w', encoding='utf-8') as f:
-        # dump `data` as JSON into the file, with nice indentation
-        json.dump(full_homes_payload, f, ensure_ascii=False, indent=2)
+    # with open('dumps/full_homes_payload.json', 'w', encoding='utf-8') as f:
+    #     # dump `data` as JSON into the file, with nice indentation
+    #     json.dump(full_homes_payload, f, ensure_ascii=False, indent=2)
     return full_homes_payload
 
 
@@ -112,8 +113,8 @@ def fetch_homes_json(url):
     try:
         # try the database
         record = (
-            session.query(Zip_To_Url)
-            .filter(Zip_To_Url.zip_code == zipcode)
+            session.query(Zipcodes)
+            .filter(Zipcodes.zip_code == zipcode)
             .one_or_none()
         )
         if record:
@@ -141,7 +142,7 @@ def fetch_homes_json(url):
             json.dump(combined_homes, f, ensure_ascii=False, indent=2)
 
         # persist for next time
-        new_row = Zip_To_Url(
+        new_row = Zipcodes(
             zip_code=zipcode,
             sold_request_url=sold_request_url,
             for_sale_request_url=for_sale_request_url,
@@ -608,22 +609,7 @@ def get_specific_info_on_each_property(homes_json):
 
             home['list_date'] = get_list_date(home)
 
-            # soup = BeautifulSoup(html, "html.parser")
-            #
-            # home['schools'] = get_schools(soup)
-            #
-            # home['price_history'] = get_price_history(soup)
-            #
-            # home['covered_spaces'] = get_covered_spaces(soup)
-            #
-            # home['tax_annual_amount'] = get_tax_annual(soup)
-            #
-            # agentsInfo = get_agents_info(soup)
-            # home['agent_name(s)'] = agentsInfo['agent_name(s)']
-            # home['agent_broker(s)'] = agentsInfo['agent_broker(s)']
-            #
-            # home['list_date'] = get_list_date(home)
-
+            home['zestimate'], home['zestimate_low'], home['zestimate_high'] = get_zestimate(home.get("streetLine", {}).get("value"), home.get("city"), home.get("state"), home.get("zip"))
         except Exception as e:
             print(f"[ERROR] processing {home['url']} raised {type(e).__name__}: {e}")
             continue

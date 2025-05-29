@@ -9,7 +9,7 @@ def main():
     url = "https://www.redfin.com/zipcode/85297"
     # url = "https://www.redfin.com/AZ/Gilbert/2350-E-Melrose-St-85297/home/28318163"
 
-    # url = "https://www.zillow.com/rental-manager/price-my-rental/results/1160-sesame-dr-sunnyvale-ca-94087/"
+    # url = "https://www.zillow.com/rental-manager/price-my-rental/results/4545-s-ellesmere-st-gilbert-az-85297/"
     # zestimate, zestimate_low, zestimate_high = get_zestimate(url)
     # print(zestimate, zestimate_low, zestimate_high)
 
@@ -17,9 +17,9 @@ def main():
 
     with open("dumps/homes_test.json", "w") as f:
         json.dump(homes, f, indent=4)  # `indent=4` makes it pretty-printed
-    # with open("dumps/homes.json", "r") as original_json:
-    #     homes = json.load(original_json)
-    load_to_db(homes)
+    # # with open("dumps/homes.json", "r") as original_json:
+    # #     homes = json.load(original_json)
+    # load_to_db(homes)
 
 
 if __name__ == "__main__":

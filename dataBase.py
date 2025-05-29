@@ -29,5 +29,5 @@ Status_History = Base.classes.status_history
 Listing = Base.classes.listing
 Property_Change = Base.classes.property_change
 Transaction = Base.classes.transaction
-Zip_To_Url = Base.classes.zip_to_url
+Zipcodes = Base.classes.zipcodes
 

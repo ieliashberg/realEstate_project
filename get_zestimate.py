@@ -8,25 +8,52 @@ import re
 import json
 
 
+# base_headers = {
+#     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+#     "Accept-Language": "en",
+#     "Cache-Control": "no-cache",
+#     "Pragma": "no-cache",
+#     "Sec-Ch-Ua": '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
+#     "Sec-Ch-Ua-Mobile": "?0",
+#     "Sec-Ch-Ua-Platform": '"Windows"',
+#     "Sec-Fetch-Dest": "document",
+#     "Sec-Fetch-Mode": "navigate",
+#     "Sec-Fetch-Site": "none",
+#     "Sec-Fetch-User": "?1",
+#     "Upgrade-Insecure-Requests": "1",
+# }
+
 base_headers = {
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-    "Accept-Language": "en",
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
-    "Sec-Ch-Ua": '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"Windows"',
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "Upgrade-Insecure-Requests": "1",
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "accept-encoding": "gzip, deflate, br, zstd",
+    "accept-language": "en-US,en;q=0.9",
+    "cache-control": "max-age=0",
+    "priority": "u=0, i",
+    # "referer": "https://www.zillow.com/rental-manager/price-my-rental/results/4545-s-ellesmere-st-gilbert-az-85297/",
+    "sec-ch-ua": 'Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": "macOS",
+    "sec-fetch-dest": "document",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-user": "?1",
+    "upgrade-insecure-requests": "1",
+    "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 }
 
 
-def get_zestimate(url):
-    html = fetch_html__via_https(url)
+def get_zestimate(address, city, state, zipcode):
+    url = create_url(address, city, state, zipcode)
+    html = fetch_html_via_https(url)
     return pull_zestimate_from_html(html)
+
+
+def create_url(address, city, state, zipcode):
+    address = address.replace(" ", "-")
+    address = address.lower()
+    city = city.lower()
+    state = state.lower()
+    return f"https://www.zillow.com/rental-manager/price-my-rental/results/{address}-{city}-{state}-{zipcode}/"
 
 
 def pull_zestimate_from_html(html: str):
@@ -63,7 +90,7 @@ def put_ua_in_header() -> dict[str, str]:
     }
 
 
-def fetch_html__via_https(url: str, proxy: dict[str, str] | None = None):
+def fetch_html_via_https(url: str, proxy: dict[str, str] | None = None):
     header_with_ua = put_ua_in_header()
     resp = requests.get(
         url=url,
@@ -75,6 +102,7 @@ def fetch_html__via_https(url: str, proxy: dict[str, str] | None = None):
     return resp.text
 
 
+# not currently used
 def human_delay(min_ms: int = 200, max_ms: int = 1200) -> None:
     """
     Randomized sleep to mimic human-like pauses.
@@ -82,6 +110,7 @@ def human_delay(min_ms: int = 200, max_ms: int = 1200) -> None:
     time.sleep(random.uniform(min_ms, max_ms) / 1000)
 
 
+# not currently used
 def fetch_html_for_zestimate_via_playwright(url: str, headless: bool = False, proxy: str | None = None, timeout: int = 30_000) -> str:
     with sync_playwright() as pw:
         # --- Launch browser with anti-detection flags ---
