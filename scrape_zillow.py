@@ -2,24 +2,21 @@ import json
 from get_homes_info import get_homes_info
 from get_zestimate import get_zestimate
 from load_to_db import load_to_db
+from populate_sold_and_for_sale_queues import populate_sold_and_for_sale_queues
+from job_runner import process_pipeline_jobs
+from datetime import timedelta
+from create_new_zip  import create_or_change_zip
+
+from dataBase import SessionLocal, Pipline_Tables
 
 
 def main():
-    # searching a particular zip code and for no pool
-    url = "https://www.redfin.com/zipcode/85297"
-    # url = "https://www.redfin.com/AZ/Gilbert/2350-E-Melrose-St-85297/home/28318163"
+    create_or_change_zip(zipcode="85297",
+                        sold_fetch_frequency=timedelta(days=7),
+                        for_sale_fetch_frequency=timedelta(days=1))
 
-    # url = "https://www.zillow.com/rental-manager/price-my-rental/results/4545-s-ellesmere-st-gilbert-az-85297/"
-    # zestimate, zestimate_low, zestimate_high = get_zestimate(url)
-    # print(zestimate, zestimate_low, zestimate_high)
-
-    homes = get_homes_info(url)  # gets all homes info as a big json file
-
-    with open("dumps/homes_test.json", "w") as f:
-        json.dump(homes, f, indent=4)  # `indent=4` makes it pretty-printed
-    # # with open("dumps/homes.json", "r") as original_json:
-    # #     homes = json.load(original_json)
-    # load_to_db(homes)
+    populate_sold_and_for_sale_queues()
+    process_pipeline_jobs()
 
 
 if __name__ == "__main__":

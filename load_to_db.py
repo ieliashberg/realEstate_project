@@ -100,10 +100,6 @@ def upsert_property(home, session):
                         ))
                         setattr(old_prop, name, new_val)
 
-            if prop_id is not None:
-                update_zestimates(prop_id, new_prop.current_zestimate, new_prop.current_zestimate_low, new_prop.current_zestimate_high,
-            )
-
             # if it was on the market before and now current mlsStatus is "sold"
             if old_prop.is_on_market and home.get('mlsStatus') == "Sold":
                 # update the transaction table
@@ -121,8 +117,6 @@ def upsert_property(home, session):
 
             # bootstrap sold histories in transaction table
             bootstrap_sold_histories(new_prop.property_id, home, session)
-
-            # add to the zestimate table
 
             session.flush()     # gives the transaction table its transactionId
             logger.info(f"Inserting new property and corresponding transaction table (redfin_id={new_prop.redfin_property_id}), property_id = {new_prop.property_id}")
