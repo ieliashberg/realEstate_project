@@ -12,9 +12,11 @@ def create_or_change_zip(zipcode: str, for_sale_fetch_frequency: timedelta, sold
         # load or instantiate
         # zipcode kept in string format in case of leading 0s
         row = session.get(Zipcodes, zipcode)
+        changes_made = False
         if row is None:
             row = Zipcodes(zipcode=zipcode)
             session.add(row)
+            changes_made=True
 
         if not isinstance(for_sale_fetch_frequency, timedelta):
             raise ValueError("for_sale_fetch_frequency must be a timedelta")
@@ -22,15 +24,24 @@ def create_or_change_zip(zipcode: str, for_sale_fetch_frequency: timedelta, sold
         if not isinstance(sold_fetch_frequency, timedelta):
             raise ValueError("sold_fetch_frequency must be a timedelta")
 
-        row.for_sale_fetch_frequency = for_sale_fetch_frequency
-        row.sold_fetch_frequency = sold_fetch_frequency
-        row.last_updated = datetime.now(timezone.utc)
+        if row.for_sale_fetch_frequency != for_sale_fetch_frequency:
+            row.for_sale_fetch_frequency = for_sale_fetch_frequency
+            changes_made = True
+
+        if row.sold_fetch_frequency != sold_fetch_frequency:
+            row.sold_fetch_frequency = sold_fetch_frequency
+            changes_made = True
 
         session.commit()
-        logger.info(f"Upserted ZIP {zipcode}: "
-                    f"for_sale fetched every {for_sale_fetch_frequency}, "
-                    f"sold fetched every {sold_fetch_frequency}")
+        if changes_made:
+            logger.info(f"Upserted ZIP {zipcode}: "
+                        f"for_sale fetched every {for_sale_fetch_frequency}, "
+                        f"sold fetched every {sold_fetch_frequency}")
 
+        else:
+            logger.info(f"No changes made to zipcode {zipcode}: "
+                        f"for_sale fetched every {for_sale_fetch_frequency}, "
+                        f"sold fetched every {sold_fetch_frequency}")
     except Exception:
         session.rollback()
         logger.exception(f"Failed to upsert ZIP {zipcode}")
