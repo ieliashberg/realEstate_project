@@ -31,7 +31,7 @@ def populate_sold_and_for_sale_queues():
                 zip_row.last_for_sale_fetch = now
 
             # sold
-            last_sold_fetch = zip_row.last_for_sale_fetch or datetime.fromtimestamp(0, tz=timezone.utc)
+            last_sold_fetch = zip_row.last_sold_fetch or datetime.fromtimestamp(0, tz=timezone.utc)
             next_sold_fetch = last_sold_fetch + zip_row.sold_fetch_frequency
             if now >= next_sold_fetch:
                 enqueue_job(session, "sold_homes_fetch", {"zipcode": zip_row.zipcode})
