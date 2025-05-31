@@ -400,7 +400,7 @@ def get_tax_annual(data):
 
 def get_agent_info(data):
     agent_name = data.get("amenitiesInfo", {}).get("mlsDisclaimerInfo", {}).get("listingAgentName")
-    agent_broker = data.get("amenitiesInfo", {}).get("mlsDisclaimerInfo", {}).get("listingBrokerName")
+    agent_broker = data.get("amenitiesInfo", {}).get("mlsDisclaimerInfo", {}).get("brokerName")
     return ({'agent_name': agent_name,
              'agent_broker': agent_broker
              })
