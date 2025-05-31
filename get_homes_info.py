@@ -1,3 +1,4 @@
+# FILE NOT CURRENTLY USED
 from playwright.sync_api import sync_playwright, TimeoutError, Error as PlaywrightError
 from dataBase import SessionLocal, Zipcodes
 from sqlalchemy.exc import SQLAlchemyError

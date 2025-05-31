@@ -1,9 +1,9 @@
+# FILE NOT CURRENTLY USED
 from datetime import datetime, timezone, timedelta
 from dataBase import SessionLocal, School, Property, Price_History, Status_History, Listing, \
     Property_Change, Transaction, Property_School_Join
 from sqlalchemy import inspect
 import logging
-from sqlalchemy.exc import SQLAlchemyError
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

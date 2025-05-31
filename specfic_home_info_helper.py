@@ -1,8 +1,6 @@
 from dataBase import Property, Transaction, Listing, School, Price_History, Property_School_Join
-
 from sqlalchemy.exc import SQLAlchemyError, NoResultFound
 from datetime import datetime, timezone, timedelta
-
 from http_handling_utils import fetch_html_via_https, redfin_base_headers
 import re
 import json
