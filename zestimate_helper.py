@@ -72,7 +72,7 @@ def upsert_zestimates(session, property_id, zestimate, zestimate_high, zestimate
     old_zestimate = corresponding_property.current_zestimate
 
     if old_zestimate is None or abs(old_zestimate - zestimate) > zestimate_update_buffer:
-        old_zestimate = zestimate
+        corresponding_property.current_zestimate = zestimate
         corresponding_property.current_zestimate_high = zestimate_high
         corresponding_property.current_zestimate_low = zestimate_low
 
