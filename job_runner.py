@@ -2,6 +2,7 @@ from dataBase import SessionLocal, Pipline_Tables
 from homes_from_zipcode_helper import fetch_homes_json_from_zipcode, upsert_initial_info
 from specfic_home_info_helper import get_specific_property_info, upsert_more_info
 from job_table_helper import enqueue_job
+from zestimate_helper import get_zestimate, upsert_zestimates
 import logging
 
 # configure logging
@@ -67,16 +68,18 @@ def handle_individual_property_fetch(payload: dict):
     session = SessionLocal()
 
     upsert_more_info(session, extra_info, payload.get("property_id"), payload.get("listing_id"), payload.get("isNewProperty"))
+    session.commit()
     session.close()
 
 
 def handle_fetch_zestimate(payload: dict):
     property_id = payload.get("property_id")
     logger.info(f"Handling fetch zestimates for {property_id}")
-    # zestimates = get_zestimate(payload)
-    # session = SessionLocal()
-    # upsert_zestimate(session, zestimates)
-    # session.close()
+    zestimate, zestimate_high, zestimate_low = get_zestimate(payload.get("address"), payload.get("city"), payload.get("state"), payload.get("zipcode"))
+    session = SessionLocal()
+    upsert_zestimates(session, property_id, zestimate, zestimate_high, zestimate_low)
+    session.commit()
+    session.close()
 
 
 # Map pipeline names to handlers

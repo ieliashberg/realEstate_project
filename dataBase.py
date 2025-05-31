@@ -31,4 +31,5 @@ Property_Change = Base.classes.property_change
 Transaction = Base.classes.transaction
 Zipcodes = Base.classes.zipcodes
 Pipline_Tables = Base.classes.pipeline_tables
+Zestimate_History = Base.classes.zestimate_history
 

@@ -1,50 +1,30 @@
+from dataBase import Property, Zestimate_History
 import time
 import random
 from playwright.sync_api import sync_playwright
 from user_agents import get_ua
 from bs4 import BeautifulSoup
-from curl_cffi import requests
+from datetime import datetime, timezone
+from http_handling_utils import fetch_html_via_https, zillow_base_headers
 import re
 import json
+import logging
 
+zestimate_update_buffer = 0
 
-# base_headers = {
-#     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-#     "Accept-Language": "en",
-#     "Cache-Control": "no-cache",
-#     "Pragma": "no-cache",
-#     "Sec-Ch-Ua": '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
-#     "Sec-Ch-Ua-Mobile": "?0",
-#     "Sec-Ch-Ua-Platform": '"Windows"',
-#     "Sec-Fetch-Dest": "document",
-#     "Sec-Fetch-Mode": "navigate",
-#     "Sec-Fetch-Site": "none",
-#     "Sec-Fetch-User": "?1",
-#     "Upgrade-Insecure-Requests": "1",
-# }
-
-base_headers = {
-    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-    "accept-encoding": "gzip, deflate, br, zstd",
-    "accept-language": "en-US,en;q=0.9",
-    "cache-control": "max-age=0",
-    "priority": "u=0, i",
-    # "referer": "https://www.zillow.com/rental-manager/price-my-rental/results/4545-s-ellesmere-st-gilbert-az-85297/",
-    "sec-ch-ua": 'Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": "macOS",
-    "sec-fetch-dest": "document",
-    "sec-fetch-mode": "navigate",
-    "sec-fetch-site": "same-origin",
-    "sec-fetch-user": "?1",
-    "upgrade-insecure-requests": "1",
-    "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
-}
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def get_zestimate(address, city, state, zipcode):
     url = create_url(address, city, state, zipcode)
-    html = fetch_html_via_https(url)
+    try:
+        html = fetch_html_via_https(url, zillow_base_headers)
+    except Exception as e:
+        logger.error(f"[ERROR] processing {url} via, trying playwright, raised {type(e).__name__}: {e}")
+        html = fetch_with_retries_via_playwright(url)
+        print(html)
+
     return pull_zestimate_from_html(html)
 
 
@@ -82,27 +62,31 @@ def pull_zestimate_from_html(html: str):
     raise ValueError("Could not find any <script> with window.__INITIAL_STATE__")
 
 
-def put_ua_in_header() -> dict[str, str]:
-    ua = get_ua()
-    return {
-        **base_headers,
-        "User-Agent": ua,
-    }
-
-
-def fetch_html_via_https(url: str, proxy: dict[str, str] | None = None):
-    header_with_ua = put_ua_in_header()
-    resp = requests.get(
-        url=url,
-        headers=header_with_ua,
-        proxies=proxy,
-        impersonate="chrome124"  # curl_cffi convenience for User-Agent spoofing
+def upsert_zestimates(session, property_id, zestimate, zestimate_high, zestimate_low):
+    corresponding_property = (
+        session
+        .query(Property)
+        .filter_by(property_id=property_id)
+        .first()
     )
-    resp.raise_for_status()
-    return resp.text
+    old_zestimate = corresponding_property.current_zestimate
+
+    if old_zestimate is None or abs(old_zestimate - zestimate) > zestimate_update_buffer:
+        old_zestimate = zestimate
+        corresponding_property.current_zestimate_high = zestimate_high
+        corresponding_property.current_zestimate_low = zestimate_low
+
+        new_zestimate_row = Zestimate_History(
+            property_id=property_id,
+            zestimate=zestimate,
+            zestimate_low=zestimate_low,
+            zestimate_high=zestimate_high,
+            date_retrieved=datetime.now(timezone.utc)
+        )
+        session.add(new_zestimate_row)
+        session.flush()
 
 
-# not currently used
 def human_delay(min_ms: int = 200, max_ms: int = 1200) -> None:
     """
     Randomized sleep to mimic human-like pauses.
@@ -110,8 +94,7 @@ def human_delay(min_ms: int = 200, max_ms: int = 1200) -> None:
     time.sleep(random.uniform(min_ms, max_ms) / 1000)
 
 
-# not currently used
-def fetch_html_for_zestimate_via_playwright(url: str, headless: bool = False, proxy: str | None = None, timeout: int = 30_000) -> str:
+def fetch_html_for_zestimate_via_playwright(url: str, headless: bool = True, proxy: str | None = None, timeout: int = 30_000) -> str:
     with sync_playwright() as pw:
         # --- Launch browser with anti-detection flags ---
         args = [
@@ -119,11 +102,14 @@ def fetch_html_for_zestimate_via_playwright(url: str, headless: bool = False, pr
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-infobars",
+            "--disable-gpu",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
         ]
         if proxy:
             args.append(f"--proxy-server={proxy}")
 
-        browser = pw.chromium.launch(headless=headless, args=args)
+        browser = pw.chromium.launch(headless=headless, args=args, )
 
         # --- Rotating UA and randomized viewport ---
         ua = get_ua()
@@ -181,9 +167,14 @@ def fetch_html_for_zestimate_via_playwright(url: str, headless: bool = False, pr
         page = context.new_page()
 
         # --- Navigate & mimic human behavior ---
-        page.goto(url, wait_until="networkidle", timeout=timeout)
-        human_delay(500, 1500)
-        page.mouse.wheel(0, random.randint(200, 500))
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+        for _ in range(random.randint(3, 7)):
+            x = random.randint(100, viewport['width'] - 100)
+            y = random.randint(100, viewport['height'] - 100)
+            page.mouse.move(x, y, steps=random.randint(5, 15))
+            time.sleep(random.uniform(0.2, 1.0))
+        human_delay(300, 1500)
+        page.mouse.wheel(0, random.randint(100, 800))
         human_delay(200, 600)
 
         # --- Wait for key element ---
@@ -195,7 +186,73 @@ def fetch_html_for_zestimate_via_playwright(url: str, headless: bool = False, pr
         human_delay(300, 800)
         html = page.content()
 
+        cookie_list = context.cookies()
+        cookie_string = cookies_list_to_header(cookie_list)
+
+        zillow_base_headers["cookie"] = cookie_string
+
+        time.sleep(60)
+
         # --- Cleanup ---
         context.close()
         browser.close()
+        print(html)
         return html
+
+
+def cookies_list_to_header(cookies: list[dict]) -> str:
+    parts: list[str] = []
+    for c in cookies:
+        name = c.get("name")
+        val = c.get("value", "")
+        if name is None:
+            continue
+        # If the cookie‐value itself contains semicolons or spaces,
+        # you may want to wrap it in quotes. Here we assume it's safe as-is.
+        parts.append(f"{name}={val}")
+
+    # join with “; ”
+    return "; ".join(parts)
+
+
+def fetch_with_retries_via_playwright(url: str, max_attempts: int = 5, backoff_seconds: float = 1.0) -> str:
+    """
+    Try to call `fetch_html_for_zestimate_via_playwright(url)` up to `max_attempts` times.
+    Consider it a failure (and retry) if:
+      - fetch_html_for_zestimate_via_playwright(...) raises any exception
+      - OR the returned HTML starts with px-captcha “Access denied” HTML
+    If all attempts fail, re-raise the last exception or return the last HTML (even if it’s px-captcha).
+    """
+    last_exception = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            html = fetch_html_for_zestimate_via_playwright(url)
+
+            # Normalize leading whitespace/newlines and inspect the start of the document
+            start = html.lstrip()
+            if start.startswith(
+                    "<!DOCTYPE html><html lang=\"en\"><head>"
+                    "    <meta charset=\"utf-8\">"
+                    "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+                    "    <meta name=\"description\" content=\"px-captcha\">"
+            ):
+                # We got the “Access denied / px-captcha” page. Treat as failure.
+                raise RuntimeError("Received px-captcha “Access Denied” HTML")
+
+            # If we reach here, fetch succeeded and it wasn’t the px‐captcha block
+            return html
+
+        except Exception as exc:
+            last_exception = exc
+            logger.warning(f"Attempt {attempt}/{max_attempts} failed: {exc!r}")
+            if attempt < max_attempts:
+                time.sleep(backoff_seconds)
+                continue
+            else:
+                # All retries exhausted
+                logger.error(f"All {max_attempts} attempts failed for URL: {url}")
+                raise last_exception
+
+    # (Should never reach here, because we either return or raise above.)
+    return ""

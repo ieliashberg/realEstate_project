@@ -1,16 +1,11 @@
-from dataBase import SessionLocal, Zipcodes, Property, Property_Change, Transaction, Listing, School, Price_History, Property_School_Join
-from user_agents import get_ua
-from playwright.sync_api import sync_playwright
+from dataBase import Property, Transaction, Listing, School, Price_History, Property_School_Join
+
 from sqlalchemy.exc import SQLAlchemyError, NoResultFound
 from datetime import datetime, timezone, timedelta
-from curl_cffi import requests
-from sqlalchemy import inspect
-from http_handling_utils import fetch_html_via_https
+
+from http_handling_utils import fetch_html_via_https, redfin_base_headers
 import re
-
 import json
-import time
-
 import logging
 
 # configure logging
@@ -31,9 +26,9 @@ def get_specific_property_info(payload: json):
     url = create_url(payload)
     extra_info = None
     try:
-        html = fetch_html_via_https(url)
+        html = fetch_html_via_https(url, redfin_base_headers)
         if not html:
-            pass            # SHOULD BE RETURNING ERROR HERE
+            raise
 
         data = get_property_json(html)
         agent_info = get_agent_info(data)
@@ -43,7 +38,7 @@ def get_specific_property_info(payload: json):
             "covered_spaces": get_covered_spaces(data),
             "tax_annual_amount": get_tax_annual(data),
             "agents_name": agent_info.get('agent_name'),
-            "agents_broker":agent_info.get('agent_broker'),
+            "agents_broker": agent_info.get('agent_broker'),
         }
 
     except Exception as e:
@@ -100,12 +95,8 @@ def upsert_more_info(session, extra_info: json, propertyID, listingID, isNewProp
                                   extra_info.get("price_history", []),
                                   session)
         bootstrap_sold_histories(propertyID,
-                             extra_info.get("price_history", []),
-                             session)
-
-    # update a “last_updated” if you have one (optional)
-    prop.last_updated = datetime.now(timezone.utc)
-    lst.last_updated = datetime.now(timezone.utc)
+                                 extra_info.get("price_history", []),
+                                 session)
 
     # leave commit to caller
 
@@ -162,15 +153,15 @@ def upsert_property_school(property_id: int, school_id: int, school, session):
         distance=dist
     )
     try:
-        old_prop_school = session.query(Property_School_Join)\
-                    .filter_by(property_id=property_id, school_id=school_id)\
-                    .first()
+        old_prop_school = session.query(Property_School_Join) \
+            .filter_by(property_id=property_id, school_id=school_id) \
+            .first()
         if not old_prop_school:
             session.add(new_prop_school)
 
         elif old_prop_school.distance != dist:
             old_prop_school.distance = dist
-            old_prop_school.last_updated = datetime.now()
+            old_prop_school.last_updated = datetime.now(timezone.utc)
 
     except Exception:
         logger.exception("Error upserting property_school")
@@ -212,6 +203,9 @@ def bootstrap_sold_histories(property_id, price_history, session):
 
             # remember this date for next loop
             last_sale_date = dt
+
+        session.flush()
+        logger.info("Finished bootstrapping sold history")
     except Exception:
         logger.exception("Error bootstrapping sold histories")
         raise

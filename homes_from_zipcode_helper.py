@@ -4,7 +4,7 @@ from playwright.sync_api import sync_playwright
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import inspect
-from http_handling_utils import fetch_html_via_https, strip_json_beginning
+from http_handling_utils import fetch_html_via_https, strip_json_beginning, redfin_base_headers
 
 import json
 import time
@@ -27,11 +27,11 @@ def fetch_homes_json_from_zipcode(pipeline_name: str, zipcode: str):
         )
 
         if record and record.for_sale_request_url and pipeline_name == "for_sale_homes_fetch":
-            homes_response = fetch_html_via_https(record.for_sale_request_url)
+            homes_response = fetch_html_via_https(record.for_sale_request_url, redfin_base_headers)
             homes_response = strip_json_beginning(homes_response)
 
         elif record and record.sold_request_url and pipeline_name == "sold_homes_fetch":
-            homes_response = fetch_html_via_https(record.sold_request_url)
+            homes_response = fetch_html_via_https(record.sold_request_url, redfin_base_headers)
             homes_response = strip_json_beginning(homes_response)
 
         # database miss or other error so fall back to playwright fetch
