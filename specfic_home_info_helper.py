@@ -98,7 +98,7 @@ def upsert_more_info(session, extra_info: json, propertyID, listingID, isNewProp
                         f"Updating Property_Change table. Tax_annual_amount; oldVal = {current_tax_amount}, newVal = {tx} (redfin_id={prop.redfin_property_id}, property_id = {prop.property_id})")
 
             else:
-                prop.covered_spaces = cv
+                prop.tax_annual_amount = tx
                 logger.info(f"Tax Annual Amount is now {tx}")
         except (TypeError, ValueError):
             prop.covered_spaces = None
