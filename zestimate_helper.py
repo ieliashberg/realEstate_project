@@ -70,11 +70,22 @@ def upsert_zestimates(session, property_id, zestimate, zestimate_high, zestimate
         .first()
     )
     old_zestimate = corresponding_property.current_zestimate
+    old_zestimate_high = corresponding_property.current_zestimate_high
+    old_zestimate_low = corresponding_property.current_zestimate_low
 
-    if old_zestimate is None or abs(old_zestimate - zestimate) > zestimate_update_buffer:
+    if zestimate is not None and (old_zestimate is None or abs(old_zestimate - zestimate) > zestimate_update_buffer):
         corresponding_property.current_zestimate = zestimate
+        logger.info("Zestimate for property {} changed to {} from {}".format(property_id, zestimate, old_zestimate))
+
+    if zestimate_high is not None and (old_zestimate_high is None or abs(old_zestimate_high - zestimate_high) > zestimate_update_buffer):
         corresponding_property.current_zestimate_high = zestimate_high
+        logger.info("Zestimate_high for property {} changed to {} from {}".format(property_id, zestimate_high, old_zestimate_high))
+
+    if zestimate_low is not None and (old_zestimate_low is None or abs(old_zestimate_low - zestimate_low) > zestimate_update_buffer):
         corresponding_property.current_zestimate_low = zestimate_low
+        logger.info("Zestimate_low for property {} changed to {} from {}".format(property_id, zestimate_low, old_zestimate_low))
+
+
 
         new_zestimate_row = Zestimate_History(
             property_id=property_id,
@@ -85,6 +96,7 @@ def upsert_zestimates(session, property_id, zestimate, zestimate_high, zestimate
         )
         session.add(new_zestimate_row)
         session.flush()
+        logger.info(f"Created new zestimate history row for property {property_id}")
 
 
 def human_delay(min_ms: int = 200, max_ms: int = 1200) -> None:

@@ -233,7 +233,8 @@ def upsert_listing(home, propertyID, session):
 
         if old_list:
             # if current status is not the same as previous status, update status history table
-            if old_list.current_status != new_list.current_status:
+            old_list_status = old_list.current_status
+            if old_list_status != new_list.current_status:
                 session.add(Status_History(
                     listing_id=old_list.listing_id,
                     change_date=datetime.now(timezone.utc),
@@ -242,9 +243,11 @@ def upsert_listing(home, propertyID, session):
                     source="redfin"
                 ))
                 setattr(old_list, 'current_status', new_list.current_status)
+                logger.info("Updated status for listing {} from {} to {}".format(old_list.listing_id, old_list_status, new_list.current_status))
 
             # if the curr price is not the same as prev price, update price history table
-            if old_list.current_price != new_list.current_price:
+            old_list_price = old_list.current_price
+            if old_list_price != new_list.current_price:
                 session.add(Price_History(
                     listing_id=old_list.listing_id,
                     change_date=datetime.now(timezone.utc),
@@ -253,11 +256,14 @@ def upsert_listing(home, propertyID, session):
                     source="redfin"
                 ))
                 setattr(old_list, 'current_price', new_list.current_price)
+                logger.info("Updated price history for listing {}, old price was {}, new price is {}".format(old_list.listing_id, old_list_price, new_list.current_price))
+
             listing_id = old_list.listing_id
 
         else:
             session.add(new_list)
             session.flush()  # gives new_listing.listing_id
+            logger.info("Added listing with listing id {}".format(new_list.listing_id))
             listing_id = new_list.listing_id
 
         return listing_id

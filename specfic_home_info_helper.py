@@ -1,4 +1,4 @@
-from dataBase import Property, Transaction, Listing, School, Price_History, Property_School_Join
+from dataBase import Property, Transaction, Listing, School, Price_History, Property_School_Join, Property_Change
 from sqlalchemy.exc import SQLAlchemyError, NoResultFound
 from datetime import datetime, timezone, timedelta
 from http_handling_utils import fetch_html_via_https, redfin_base_headers
@@ -56,17 +56,52 @@ def upsert_more_info(session, extra_info: json, propertyID, listingID, isNewProp
     cv = extra_info.get("covered_spaces")
     if cv is not None:
         try:
-            prop.covered_spaces = int(float(cv))
+            current_covered_spaces = prop.covered_spaces
+            cv = int(float(cv))
+            if current_covered_spaces is not None:
+                if cv is not None and current_covered_spaces != cv:
+                    session.add(Property_Change(
+                        property_id=prop.property_id,
+                        changed_attribute="covered_spaces",
+                        change_date=datetime.now(timezone.utc),
+                        old_value=str(current_covered_spaces),
+                        new_value=str(cv),
+                        source="redfin",
+                    ))
+                    setattr(prop, "covered_spaces", cv)
+                    logger.info(
+                        f"Updating Property_Change table. Covered_spaces; oldVal = {current_covered_spaces}, newVal = {cv} (redfin_id={prop.redfin_property_id}, property_id = {prop.property_id})")
+
+            else:
+                prop.covered_spaces = cv
+                logger.info(f"Covered Spaces Value is now {cv}")
         except (TypeError, ValueError):
             prop.covered_spaces = None
 
     tx = extra_info.get("tax_annual_amount")
     if tx is not None:
         try:
-            prop.tax_annual_amount = int(float(tx))
-        except (TypeError, ValueError):
-            prop.tax_annual_amount = None
+            current_tax_amount = prop.tax_annual_amount
+            tx = int(float(tx))
+            if current_tax_amount is not None:
+                if tx is not None and current_tax_amount != tx:
+                    session.add(Property_Change(
+                        property_id=prop.property_id,
+                        changed_attribute="tax_annual_amount",
+                        change_date=datetime.now(timezone.utc),
+                        old_value=str(current_tax_amount),
+                        new_value=str(tx),
+                        source="redfin",
+                    ))
+                    setattr(prop, "tax_annual_amount", tx)
+                    logger.info(
+                        f"Updating Property_Change table. Tax_annual_amount; oldVal = {current_tax_amount}, newVal = {tx} (redfin_id={prop.redfin_property_id}, property_id = {prop.property_id})")
 
+            else:
+                prop.covered_spaces = cv
+                logger.info(f"Covered Spaces Value is now {cv}")
+        except (TypeError, ValueError):
+            prop.covered_spaces = None
     session.flush()
 
     # fetch & update Listing
@@ -75,8 +110,28 @@ def upsert_more_info(session, extra_info: json, propertyID, listingID, isNewProp
     except NoResultFound:
         raise RuntimeError(f"Listing {listingID} not found")
 
-    lst.agent_name = extra_info.get("agents_name")
-    lst.agent_broker = extra_info.get("agents_broker")
+    new_agent_name = extra_info.get("agents_name")
+    old_agent_name = lst.agent_name
+    if new_agent_name is not None:
+        if old_agent_name is not None:
+            if old_agent_name != new_agent_name:
+                lst.agent_name = new_agent_name
+                logger.info("agent_name changed from {} to {} for listing_id {}".format(old_agent_name, new_agent_name, listingID))
+        else:
+            lst.agent_name = new_agent_name
+            logger.info("agent_name found = {} for listing_id {}".format(new_agent_name, listingID))
+
+    new_broker = extra_info.get("agents_broker")
+    old_broker = lst.broker
+    if new_broker is not None:
+        if old_broker is not None:
+            if  old_broker != new_broker:
+                lst.broker = new_broker
+                logger.info("broker changed from {} to {} for listing_id {}".format(old_broker, new_broker, listingID))
+        else:
+            lst.broker = new_broker
+            logger.info("agent_name broker = {} for listing_id {}".format(lst.broker, listingID))
+
     session.flush()
 
     # upsert schools & joins
@@ -154,15 +209,22 @@ def upsert_property_school(property_id: int, school_id: int, school, session):
         old_prop_school = session.query(Property_School_Join) \
             .filter_by(property_id=property_id, school_id=school_id) \
             .first()
+
         if not old_prop_school:
             session.add(new_prop_school)
+            session.flush()
+            logger.info("New Property School Join added, property_id={}, school_id={}, distance={}".format(property_id,school_id,dist))
 
-        elif old_prop_school.distance != dist:
-            old_prop_school.distance = dist
-            old_prop_school.last_updated = datetime.now(timezone.utc)
+        else:
+            old_dist = old_prop_school.distance
+            if dist is not None and float(old_dist) != float(dist):
+                old_prop_school.distance = dist
+                old_prop_school.last_updated = datetime.now(timezone.utc)
+                session.flush()
+                logger.info("changed distance between property_id = {} to school_id = {} from {} to {}".format(property_id, school_id, old_dist, dist))
 
     except Exception:
-        logger.exception("Error upserting property_school")
+        logger.exception(f"Error upserting property_school with school_id={school_id}, property_id={property_id}")
         session.rollback()
         raise
 
@@ -219,10 +281,11 @@ def upsert_school(school, session) -> int:
         .filter_by(name=school['name'])
         .first()
     )
+    new_rating = school.get("rating")
     if not existing:
         new_school = School(
             name=school.get('name'),
-            rating=school.get('rating'),
+            rating=new_rating,
             is_public=school.get('is_public'),
             is_elementary=school.get('is_elementary'),
             is_middle=school.get('is_middle'),
@@ -230,15 +293,16 @@ def upsert_school(school, session) -> int:
         )
         session.add(new_school)
         session.flush()  # populates new_school.school_id
+        logger.info(f"New school created: {new_school.name}")
         return new_school.school_id
     else:
         # update if needed
-        updated = False
-        if existing.rating != school.get('rating'):
-            existing.rating = school.get('rating')
-            updated = True
-        if updated:
+        old_rating = existing.rating
+        if new_rating is not None and old_rating != new_rating:
+            existing.rating = new_rating
+            logger.info(f"School name {existing.name}, school_id {existing.school_id}, rating changed from {old_rating} to {new_rating}")
             session.flush()
+
         return existing.school_id
 
 
@@ -400,7 +464,7 @@ def get_tax_annual(data):
 
 def get_agent_info(data):
     agent_name = data.get("amenitiesInfo", {}).get("mlsDisclaimerInfo", {}).get("listingAgentName")
-    agent_broker = data.get("amenitiesInfo", {}).get("mlsDisclaimerInfo", {}).get("brokerName")
+    agent_broker = data.get("amenitiesInfo", {}).get("mlsDisclaimerInfo", {}).get("listingBrokerName")
     return ({'agent_name': agent_name,
              'agent_broker': agent_broker
              })

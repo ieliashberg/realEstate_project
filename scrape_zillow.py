@@ -14,7 +14,18 @@ def main():
     #                     for_sale_fetch_frequency=timedelta(days=1))
     #
     populate_sold_and_for_sale_queues()
-    process_pipeline_jobs()
+
+    # keep processing pipeline jobs until none remain
+    while True:
+        session = SessionLocal()
+        has_any = session.query(Pipline_Tables).first() is not None
+        session.close()
+        if not has_any:
+            break
+
+        process_pipeline_jobs()
+
+    print("All pipeline jobs have been processed.")
 
 
 if __name__ == "__main__":

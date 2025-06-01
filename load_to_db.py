@@ -328,7 +328,3 @@ def upsert_property_school(property_id: int, school_id: int, school, session):
         logger.exception("Error upserting property_school")
         session.rollback()
         raise
-
-
-
-

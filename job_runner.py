@@ -16,6 +16,7 @@ def process_pipeline_jobs():
     try:
         # fetch all jobs
         jobs = session.query(Pipline_Tables).all()
+        num_jobs_processed = 0
         for job in jobs:
             handler = PIPELINE_HANDLERS.get(job.name_of_pipeline)
             if handler:
@@ -27,12 +28,13 @@ def process_pipeline_jobs():
                         handler(job.payload)
                     # delete job on success
                     session.delete(job)
+                    num_jobs_processed += 1
                 except Exception:
                     logger.exception(f"Error processing job id={job.id} pipeline={job.name_of_pipeline}")
             else:
                 logger.warning(f"No handler for pipeline '{job.name_of_pipeline}' (job id={job.id})")
         session.commit()
-        logger.info("Processed all pipeline jobs.")
+        logger.info(f"Processed full round of pipeline jobs; num_jobs_processed={num_jobs_processed}.")
     except Exception:
         session.rollback()
         logger.exception("Failed processing pipeline jobs.")
