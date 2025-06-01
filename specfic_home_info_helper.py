@@ -74,7 +74,7 @@ def upsert_more_info(session, extra_info: json, propertyID, listingID, isNewProp
 
             else:
                 prop.covered_spaces = cv
-                logger.info(f"Covered Spaces Value is now {cv}")
+                logger.info(f"Covered Spaces Value is now {cv} for property {propertyID}")
         except (TypeError, ValueError):
             prop.covered_spaces = None
 
@@ -190,7 +190,7 @@ def bootstrap_price_histories(listing_id, price_history, session):
             ))
             prev_price = this_price
         session.flush()
-        logger.info("Finished bootstrapping price history")
+        logger.info(f"Finished bootstrapping price history for listing {listing_id}")
         return
     except Exception:
         logger.exception("Error bootstrapping price histories")
@@ -265,7 +265,7 @@ def bootstrap_sold_histories(property_id, price_history, session):
             last_sale_date = dt
 
         session.flush()
-        logger.info("Finished bootstrapping sold history")
+        logger.info(f"Finished bootstrapping sold history for property {property_id}")
     except Exception:
         logger.exception("Error bootstrapping sold histories")
         raise

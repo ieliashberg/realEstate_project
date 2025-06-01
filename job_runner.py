@@ -76,7 +76,7 @@ def handle_individual_property_fetch(payload: dict):
 
 def handle_fetch_zestimate(payload: dict):
     property_id = payload.get("property_id")
-    logger.info(f"Handling fetch zestimates for {property_id}")
+    logger.info(f"Handling fetch zestimates for property_id {property_id}")
     zestimate, zestimate_high, zestimate_low = get_zestimate(payload.get("address"), payload.get("city"), payload.get("state"), payload.get("zipcode"))
     session = SessionLocal()
     upsert_zestimates(session, property_id, zestimate, zestimate_high, zestimate_low)
