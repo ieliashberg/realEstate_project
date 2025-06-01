@@ -99,7 +99,7 @@ def upsert_more_info(session, extra_info: json, propertyID, listingID, isNewProp
 
             else:
                 prop.covered_spaces = cv
-                logger.info(f"Covered Spaces Value is now {cv}")
+                logger.info(f"Tax Annual Amount is now {tx}")
         except (TypeError, ValueError):
             prop.covered_spaces = None
     session.flush()
