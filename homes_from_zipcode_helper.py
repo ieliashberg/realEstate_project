@@ -163,6 +163,7 @@ def upsert_property(home, session):
                             source="redfin",
                         ))
                         setattr(old_prop, name, new_val)
+                        session.flush()
                         logger.info(
                             f"Updating Property_Change table. Name of changed attribute = {name}, oldVal = {old_val}, newVal = {new_val} (redfin_id={new_prop.redfin_property_id}, property_id = {new_prop.property_id})")
 

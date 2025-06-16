@@ -12,35 +12,35 @@ logger = logging.getLogger(__name__)
 
 # ----- Processing queued jobs -----
 def process_pipeline_jobs():
-    session = SessionLocal()
-    try:
-        # fetch all jobs
-        jobs = session.query(Pipline_Tables).all()
-        num_jobs_processed = 0
-        for job in jobs:
-            handler = PIPELINE_HANDLERS.get(job.name_of_pipeline)
-            if handler:
-                try:
-                    # pass both pipeline name and payload to the handler
-                    if job.name_of_pipeline in ("sold_homes_fetch", "for_sale_homes_fetch"):
-                        handler(job.name_of_pipeline, job.payload)
-                    else:
-                        handler(job.payload)
-                    # delete job on success
-                    session.delete(job)
-                    num_jobs_processed += 1
-                except Exception:
-                    logger.exception(f"Error processing job id={job.id} pipeline={job.name_of_pipeline}")
+    while True:
+        session = SessionLocal()
+        job = session.query(Pipline_Tables).order_by(Pipline_Tables.id).first()
+        if not job:
+            session.close()
+            break
+
+        handler = PIPELINE_HANDLERS.get(job.name_of_pipeline)
+        if not handler:
+            logger.warning(f"No handler for {job.name_of_pipeline}, deleting job {job.id}")
+            session.delete(job)
+            session.commit()
+            session.close()
+            continue
+
+        try:
+            if job.name_of_pipeline in ("sold_homes_fetch", "for_sale_homes_fetch"):
+                handler(job.name_of_pipeline, job.payload)
             else:
-                logger.warning(f"No handler for pipeline '{job.name_of_pipeline}' (job id={job.id})")
-        session.commit()
-        logger.info(f"Processed full round of pipeline jobs; num_jobs_processed={num_jobs_processed}.")
-    except Exception:
-        session.rollback()
-        logger.exception("Failed processing pipeline jobs.")
-        raise
-    finally:
-        session.close()
+                handler(job.payload)
+
+            session.delete(job)
+            session.commit()
+            logger.info(f"Job {job.id} succeeded and was deleted")
+        except Exception:
+            session.rollback()
+            logger.exception(f"Job {job.id} failed—rolled back, leaving it for retry")
+        finally:
+            session.close()
 
 
 def handle_sold_or_for_sale_homes_fetch(pipeline: str, payload: dict):
