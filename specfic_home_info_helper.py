@@ -142,7 +142,7 @@ def upsert_more_info(session, extra_info: json, propertyID, listingID, isNewProp
 
     # bootstrap sold‐transaction history
     #    We only pass the list of events; bootstrap_sold_histories
-    #    will skip non-sold markers and avoid duplicates if you’ve written it that way.
+    #    will skip non-sold markers and avoid duplicates if you've written it that way.
     if isNewProperty:
         bootstrap_price_histories(listingID,
                                   extra_info.get("price_history", []),
@@ -156,41 +156,96 @@ def upsert_more_info(session, extra_info: json, propertyID, listingID, isNewProp
 
 def bootstrap_price_histories(listing_id, price_history, session):
     try:
-        slice_entries = []
-        for entry in price_history:
+        # Find the most recent "Sold" event
+        most_recent_sold_index = -1
+        for i, entry in enumerate(price_history):
             description = entry.get("description", "")
             if "Sold" in description:
+                most_recent_sold_index = i
+
+        # Only consider entries after the most recent sold event
+        if most_recent_sold_index == -1:
+            relevant_entries = price_history
+        else:
+            relevant_entries = price_history[most_recent_sold_index + 1:]
+
+        # Filter to only entries within the last 5 months
+        five_months_ago = datetime.now() - timedelta(days=150)
+        recent_entries = []
+        for entry in relevant_entries:
+            try:
+                entry_date = datetime.strptime(entry.get("date"), "%Y-%m-%d")
+                if entry_date >= five_months_ago:
+                    recent_entries.append(entry)
+            except (ValueError, TypeError):
+                continue
+
+        # Sort entries by date (oldest first)
+        recent_entries.sort(key=lambda x: datetime.strptime(x.get("date"), "%Y-%m-%d"))
+
+        # Deduplicate same-day events by keeping only the most recent one (closest to top of original list)
+        unique_entries = []
+        seen_dates = set()
+        for entry in reversed(recent_entries):
+            entry_date = entry.get("date")
+            if entry_date not in seen_dates:
+                unique_entries.append(entry)
+                seen_dates.add(entry_date)
+        unique_entries.reverse()
+
+        # Find the first listing event ("Listed (Active)" or "Listed")
+        initial_event = None
+        for entry in unique_entries:
+            description = entry.get("description", "")
+            if description in ["Listed (Active)", "Listed"]:
+                initial_event = entry
                 break
-            slice_entries.append(entry)
 
-        # 1) Determine the initial old_price from the last "Listed (Active)"
-        initial_price = None
-        for entry in reversed(slice_entries):
-            if entry.get("description") == "Listed (Active)":
-                initial_price = entry.get('price')
-                break
+        if not initial_event:
+            session.flush()
+            logger.info(f"No valid listing event found for listing {listing_id} (last 5 months)")
+            return
 
-        # 2) Pull out only the Price Changed entries, then reverse to oldest -> newest
-        changes = [
-            e for e in slice_entries
-            if e.get("description") == "Price Changed"
-        ]
-        changes.reverse()
+        # Collect all price change and listing events in order
+        events_to_chain = []
+        for entry in unique_entries:
+            description = entry.get("description", "")
+            if description in ["Listed (Active)", "Listed", "Price Changed"]:
+                events_to_chain.append(entry)
 
-        # add to table
-        prev_price = initial_price
-        for entry in changes:
-            this_price = entry.get("price")
-            session.add(Price_History(
-                listing_id=listing_id,
-                change_date=entry.get("date"),
-                old_price=prev_price,
-                new_price=this_price,
-                source="redfin"
-            ))
-            prev_price = this_price
+        if not events_to_chain:
+            session.flush()
+            logger.info(f"No price events to chain for listing {listing_id} (last 5 months)")
+            return
+
+        # Chain transitions: null -> first listed, then each price change/relist only if price changes
+        prev_price = None
+        for idx, entry in enumerate(events_to_chain):
+            this_price = entry.get('price')
+            this_date = entry.get('date')
+            if idx == 0:
+                # First event: null -> first listed price
+                session.add(Price_History(
+                    listing_id=listing_id,
+                    change_date=this_date,
+                    old_price=None,
+                    new_price=this_price,
+                    source="redfin"
+                ))
+                prev_price = this_price
+            else:
+                # Only add if price actually changes
+                if prev_price != this_price:
+                    session.add(Price_History(
+                        listing_id=listing_id,
+                        change_date=this_date,
+                        old_price=prev_price,
+                        new_price=this_price,
+                        source="redfin"
+                    ))
+                    prev_price = this_price
         session.flush()
-        logger.info(f"Finished bootstrapping price history for listing {listing_id}")
+        logger.info(f"Finished bootstrapping price history for listing {listing_id} (last 5 months)")
         return
     except Exception:
         logger.exception("Error bootstrapping price histories")

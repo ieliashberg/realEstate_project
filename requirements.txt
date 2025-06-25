@@ -1,0 +1,35 @@
+# Core data processing
+pandas==2.2.3
+numpy==2.2.5
+
+# Database
+SQLAlchemy==2.0.40
+psycopg2-binary==2.9.10
+
+# Web scraping and automation
+playwright==1.51.0
+playwright-stealth==1.0.6
+selenium==4.31.0
+undetected-chromedriver==3.5.5
+webdriver-manager==4.0.2
+curl_cffi==0.10.0
+beautifulsoup4==4.13.4
+requests==2.32.3
+
+# Google APIs
+google-api-python-client==2.172.0
+google-auth==2.40.3
+google-auth-oauthlib==1.2.2
+google-auth-httplib2==0.2.0
+gspread==6.2.1
+
+# Date/time utilities
+python-dateutil==2.9.0.post0
+python-dotenv==1.1.0
+
+# Utilities
+attrs==25.3.0
+certifi==2025.4.26
+charset-normalizer==3.4.1
+idna==3.10
+urllib3==2.4.0 
