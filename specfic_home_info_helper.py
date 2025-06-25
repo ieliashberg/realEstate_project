@@ -193,9 +193,17 @@ def bootstrap_price_histories(listing_id, price_history, session):
                 seen_dates.add(entry_date)
         unique_entries.reverse()
 
+        # Filter out rental-related events
+        filtered_entries = []
+        for entry in unique_entries:
+            description = entry.get("description", "").lower()
+            if "rent" in description or "rental" in description:
+                continue
+            filtered_entries.append(entry)
+
         # Find the first listing event ("Listed (Active)" or "Listed")
         initial_event = None
-        for entry in unique_entries:
+        for entry in filtered_entries:
             description = entry.get("description", "")
             if description in ["Listed (Active)", "Listed"]:
                 initial_event = entry
@@ -208,7 +216,7 @@ def bootstrap_price_histories(listing_id, price_history, session):
 
         # Collect all price change and listing events in order
         events_to_chain = []
-        for entry in unique_entries:
+        for entry in filtered_entries:
             description = entry.get("description", "")
             if description in ["Listed (Active)", "Listed", "Price Changed"]:
                 events_to_chain.append(entry)

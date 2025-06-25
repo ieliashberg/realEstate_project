@@ -124,7 +124,36 @@ class TestBootstrapPriceHistories(unittest.TestCase):
         self.assertEqual(call.new_price, 710000)
         self.assertEqual(call.change_date, "2025-06-12")
 
-   
+    def test_rental_events_ignored_after_sold(self):
+        """Test that rental-related events after the most recent Sold are ignored, only main listing is captured."""
+        price_history = [
+            self.create_price_history_entry("2017-09-15", "Listed (Active)", 325000),
+            self.create_price_history_entry("2017-09-21", "Price Changed", 319000),
+            self.create_price_history_entry("2017-09-25", "Price Changed", 314500),
+            self.create_price_history_entry("2017-09-28", "Price Changed", 299995),
+            self.create_price_history_entry("2017-10-06", "Contingent (Under Contract Accepting Backups)", None),
+            self.create_price_history_entry("2017-11-08", "Pending", None),
+            self.create_price_history_entry("2017-11-09", "Sold (MLS) (Closed)", 290000),
+            self.create_price_history_entry("2024-03-16", "Listed for Rent", 3200),
+            self.create_price_history_entry("2024-03-28", "Rental Removed", 3200),
+            self.create_price_history_entry("2025-06-16", "Listed for Rent", 3500),
+            self.create_price_history_entry("2025-06-24", "Rental Removed", 3500),
+            self.create_price_history_entry("2025-06-24", "Listed (Active)", 590000),
+        ]
+
+        with patch('specfic_home_info_helper.datetime') as mock_datetime:
+            mock_datetime.now.return_value = datetime(2025, 6, 25)
+            mock_datetime.strptime = datetime.strptime
+
+            bootstrap_price_histories(self.listing_id, price_history, self.mock_session)
+
+        # Should only create 1 record: null -> 590,000 (Jun 24, 2025)
+        self.assertEqual(self.mock_session.add.call_count, 1)
+
+        call = self.mock_session.add.call_args_list[0][0][0]
+        self.assertEqual(call.old_price, None)
+        self.assertEqual(call.new_price, 590000)
+        self.assertEqual(call.change_date, "2025-06-24")
 
 if __name__ == '__main__':
     unittest.main()
