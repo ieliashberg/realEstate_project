@@ -24,6 +24,7 @@ def process_pipeline_jobs():
             logger.warning(f"No handler for {job.name_of_pipeline}, deleting job {job.id}")
             session.delete(job)
             session.commit()
+            logger.info(f"DATABASE DELETE: Job {job.id} ({job.name_of_pipeline}) - No handler found")
             session.close()
             continue
 
@@ -35,7 +36,7 @@ def process_pipeline_jobs():
 
             session.delete(job)
             session.commit()
-            logger.info(f"Job {job.id} succeeded and was deleted")
+            logger.info(f"DATABASE DELETE: Job {job.id} ({job.name_of_pipeline}) - Completed successfully")
         except Exception:
             session.rollback()
             logger.exception(f"Job {job.id} failed—rolled back, leaving it for retry")
@@ -65,23 +66,63 @@ def handle_sold_or_for_sale_homes_fetch(pipeline: str, payload: dict):
 
 def handle_individual_property_fetch(payload: dict):
     property_id = payload.get("property_id")
-    logger.info(f"Handling individual property fetch for {property_id}")
-    extra_info = get_specific_property_info(payload)
-    session = SessionLocal()
-
-    upsert_more_info(session, extra_info, payload.get("property_id"), payload.get("listing_id"), payload.get("isNewProperty"))
-    session.commit()
-    session.close()
+    address = payload.get("address", "Unknown")
+    city = payload.get("city", "Unknown")
+    state = payload.get("state", "Unknown")
+    zipcode = payload.get("zipcode", "Unknown")
+    
+    try:
+        extra_info = get_specific_property_info(payload)
+        
+        if extra_info is None:
+            logger.error(f"REDFIN FAILED: No data received for {address}, {city}, {state} {zipcode}")
+            return
+        
+        tax_annual_amount = extra_info['tax_annual_amount']
+        
+        if tax_annual_amount:
+            logger.info(f"REDFIN SUCCESS: {address}, {city}, {state} {zipcode} - Tax: ${tax_annual_amount:,}, Schools: {len(extra_info.get('schools', []))}, Price History: {len(extra_info.get('price_history', []))}")
+        else:
+            logger.warning(f"REDFIN NO DATA: {address}, {city}, {state} {zipcode} - No tax information available; Available data: {extra_info}")
+            
+        session = SessionLocal()
+        upsert_more_info(session, extra_info, payload.get("property_id"), payload.get("listing_id"), payload.get("isNewProperty"))
+        session.commit()
+        session.close()
+        
+    except Exception as e:
+        logger.error(f"REDFIN FAILED: Exception for {address}, {city}, {state} {zipcode} - {type(e).__name__}: {e}")
+        raise
 
 
 def handle_fetch_zestimate(payload: dict):
     property_id = payload.get("property_id")
-    logger.info(f"Handling fetch zestimates for property_id {property_id}")
-    zestimate, zestimate_high, zestimate_low = get_zestimate(payload.get("address"), payload.get("city"), payload.get("state"), payload.get("zipcode"))
-    session = SessionLocal()
-    upsert_zestimates(session, property_id, zestimate, zestimate_high, zestimate_low)
-    session.commit()
-    session.close()
+    address = payload.get("address")
+    city = payload.get("city")
+    state = payload.get("state")
+    zipcode = payload.get("zipcode")
+    
+    try:
+        zestimate, zestimate_high, zestimate_low = get_zestimate(address, city, state, zipcode)
+        
+        # Check if we got valid data
+        if zestimate is None and zestimate_high is None and zestimate_low is None:
+            # Don't raise exception - just log and continue
+            # This prevents the job from being retried indefinitely
+            return
+        
+        session = SessionLocal()
+        try:
+            upsert_zestimates(session, property_id, zestimate, zestimate_high, zestimate_low)
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            raise  # Re-raise to trigger job retry
+        finally:
+            session.close()
+            
+    except Exception as e:
+        raise  # Re-raise to trigger job retry
 
 
 # Map pipeline names to handlers

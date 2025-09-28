@@ -182,7 +182,7 @@ def upsert_listing(home, propertyID, session):
 
     # if listing id doesn't exist, skip over making a listing
     if new_list.redfin_listing_id is None:
-        logger.info("Error Upserting listing, No redfin listing id")
+        logger.error("Error Upserting listing, No redfin listing id")
         return
     try:
         old_list = session.query(Listing)\

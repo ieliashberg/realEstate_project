@@ -1,10 +1,10 @@
 from dataBase import SessionLocal, Zipcodes, Property, Property_Change, Transaction, Listing, Status_History, Price_History
-from user_agents import get_ua
+from services.user_agent_service import UserAgentService
 from playwright.sync_api import sync_playwright
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import inspect
-from http_handling_utils import fetch_html_via_https, strip_json_beginning, redfin_base_headers
+from utils.http_utils import fetch_html_via_https, strip_json_beginning, REDFIN_HEADERS as redfin_base_headers
 
 import json
 import time
@@ -28,11 +28,11 @@ def fetch_homes_json_from_zipcode(pipeline_name: str, zipcode: str):
 
         if record and record.for_sale_request_url and pipeline_name == "for_sale_homes_fetch":
             homes_response = fetch_html_via_https(record.for_sale_request_url, redfin_base_headers)
-            homes_response = strip_json_beginning(homes_response)
+            homes_response = json.loads(strip_json_beginning(homes_response, "{}&&"))
 
         elif record and record.sold_request_url and pipeline_name == "sold_homes_fetch":
             homes_response = fetch_html_via_https(record.sold_request_url, redfin_base_headers)
-            homes_response = strip_json_beginning(homes_response)
+            homes_response = json.loads(strip_json_beginning(homes_response, "{}&&"))
 
         # database miss or other error so fall back to playwright fetch
         else:
@@ -63,13 +63,13 @@ def fetch_homes_json_from_zipcode(pipeline_name: str, zipcode: str):
     except SQLAlchemyError as db_err:
         session.rollback()
         # log the error, or re-raise if you want upstream handling
-        print(f"[DB ERROR] could not update zip_to_bounds for {zipcode}: {db_err}")
+        logger.error(f"[DB ERROR] could not update zip_to_bounds for {zipcode}: {db_err}")
         raise
 
     except Exception as e:
         session.rollback()
         # handle playwright or other failures if you like
-        print(f"[ERROR] fetch_bounds_for_zip({zipcode}) failed: {e}")
+        logger.error(f"[ERROR] fetch_bounds_for_zip({zipcode}) failed: {e}")
         raise
 
     finally:
@@ -77,10 +77,18 @@ def fetch_homes_json_from_zipcode(pipeline_name: str, zipcode: str):
 
 
 def fetch_homes_json_via_playwright(page_url):
+    # Get user agent from database
+    session = SessionLocal()
+    ua_service = UserAgentService(session)
+    user_agents = ua_service.get_working_user_agents(1)
+    session.close()
+    
+    user_agent = user_agents[0] if user_agents else "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=False)
         context = browser.new_context(
-            user_agent=get_ua()
+            user_agent=user_agent
         )
         page = context.new_page()
 
@@ -185,7 +193,8 @@ def upsert_property(home, session):
                 "zipcode": old_prop.zipcode,
                 "redfin_property_id": old_prop.redfin_property_id,
                 "property_id": old_prop.property_id,
-                "isNewProperty": False
+                "isNewProperty": False,
+                "url": home.get('url')  # Preserve the original Redfin URL
             }
         else:
             session.add(new_prop)
@@ -200,8 +209,8 @@ def upsert_property(home, session):
                 "zipcode": new_prop.zipcode,
                 "redfin_property_id": new_prop.redfin_property_id,
                 "property_id": new_prop.property_id,
-                "isNewProperty": True
-
+                "isNewProperty": True,
+                "url": home.get('url')  # Preserve the original Redfin URL
             }
 
         session.commit()

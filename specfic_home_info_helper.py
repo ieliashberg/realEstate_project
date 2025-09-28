@@ -1,7 +1,7 @@
 from dataBase import Property, Transaction, Listing, School, Price_History, Property_School_Join, Property_Change
 from sqlalchemy.exc import SQLAlchemyError, NoResultFound
 from datetime import datetime, timezone, timedelta
-from http_handling_utils import fetch_html_via_https, redfin_base_headers
+from utils.http_utils import fetch_html_via_https, REDFIN_HEADERS as redfin_base_headers
 import re
 import json
 import logging
@@ -12,32 +12,71 @@ logger = logging.getLogger(__name__)
 
 
 def create_url(payload: json):
-    payload['address'] = payload.get('address').replace(" ", "-")
-    payload['address'] = payload.get('address').lower()
-    payload['address'] = payload.get('city').lower()
-    payload['address'] = payload.get('state').lower()
-    url = f"https://www.redfin.com/{payload.get('state')}/{payload.get('city')}/{payload.get('address')}-{payload.get('zip')}/home/{payload.get('redfin_property_id')}"
+    address = payload.get('address', '').replace(" ", "-").lower()
+    city = payload.get('city', '').replace(" ", "-").lower()
+    state = payload.get('state', '').upper()
+    zipcode = payload.get('zip', '') or payload.get('zipcode', '')
+    redfin_id = payload.get('redfin_property_id', '')
+    url = f"https://www.redfin.com/{state}/{city}/{address}-{zipcode}/home/{redfin_id}"
     return url
 
 
 def get_specific_property_info(payload: json):
-    url = create_url(payload)
+    # Use the original Redfin URL if available, otherwise fall back to creating one
+    url = payload.get('url')
+    if url:
+        # The URL from Redfin is relative, so we need to add the base URL
+        if url.startswith('/'):
+            url = f"https://www.redfin.com{url}"
+    else:
+        # Fallback to the old create_url method for backward compatibility
+        url = create_url(payload)
+    
     extra_info = None
     try:
         html = fetch_html_via_https(url, redfin_base_headers)
         if not html:
-            raise
+            raise RuntimeError(f"Failed to fetch HTML from {url}")
 
         data = get_property_json(html)
-        agent_info = get_agent_info(data)
-        extra_info = {
-            "schools": get_schools(data),
-            "price_history": get_price_history(data),
-            "covered_spaces": get_covered_spaces(data),
-            "tax_annual_amount": get_tax_annual(data),
-            "agents_name": agent_info.get('agent_name'),
-            "agents_broker": agent_info.get('agent_broker'),
-        }
+        
+        # Check if we have amenitiesInfo in the data
+        if data and 'amenitiesInfo' in data:
+            # We have the detailed amenities data
+            agent_info = get_agent_info(data)
+            extra_info = {
+                "schools": get_schools(data),
+                "price_history": get_price_history(data),
+                "covered_spaces": get_covered_spaces(data),
+                "tax_annual_amount": get_tax_annual(data),
+                "agents_name": agent_info.get('agent_name'),
+                "agents_broker": agent_info.get('agent_broker'),
+            }
+        else:
+            # Try to look for the belowTheFold data in the HTML
+            # This data might be in a separate script tag or API response
+            below_the_fold_data = _extract_below_the_fold_data(html)
+            if below_the_fold_data and 'amenitiesInfo' in below_the_fold_data:
+                # We found the amenities data in the belowTheFold response
+                agent_info = get_agent_info(below_the_fold_data)
+                extra_info = {
+                    "schools": get_schools(below_the_fold_data),
+                    "price_history": get_price_history(below_the_fold_data),
+                    "covered_spaces": get_covered_spaces(below_the_fold_data),
+                    "tax_annual_amount": get_tax_annual(below_the_fold_data),
+                    "agents_name": agent_info.get('agent_name'),
+                    "agents_broker": agent_info.get('agent_broker'),
+                }
+            else:
+                # No detailed info available
+                extra_info = {
+                    "schools": [],
+                    "price_history": [],
+                    "covered_spaces": None,
+                    "tax_annual_amount": None,
+                    "agents_name": None,
+                    "agents_broker": None,
+                }
 
     except Exception as e:
         logger.error(f"[ERROR] processing {url} raised {type(e).__name__}: {e}")
@@ -45,7 +84,63 @@ def get_specific_property_info(payload: json):
     return extra_info
 
 
+def _extract_below_the_fold_data(html):
+    """Extract belowTheFold data from Redfin HTML which contains amenitiesInfo."""
+    from bs4 import BeautifulSoup
+    import re
+    import json
+    from utils.http_utils import strip_json_beginning
+    
+    soup = BeautifulSoup(html, "html.parser")
+    script_tags = soup.find_all("script")
+    
+    for script in script_tags:
+        text = script.get_text()
+        
+        # Look for the belowTheFold API response in the script
+        if "belowTheFold" in text and "amenitiesInfo" in text:
+            # Try to find the belowTheFold data in the reactServerState
+            if "root.__reactServerState" in text:
+                # Look for the belowTheFold entry in the data cache
+                below_the_fold_match = re.search(
+                    r"root\.__reactServerState\.InitialContext\s*=\s*({.*?});",
+                    text,
+                    flags=re.DOTALL
+                )
+                if below_the_fold_match:
+                    try:
+                        context_data = json.loads(below_the_fold_match.group(1))
+                        data_cache = context_data.get('ReactServerAgent.cache', {}).get('dataCache', {})
+                        
+                        # Look for the belowTheFold entry
+                        below_the_fold_key = '/stingray/api/home/details/belowTheFold'
+                        if below_the_fold_key in data_cache:
+                            entry = data_cache[below_the_fold_key]
+                            if 'res' in entry and 'text' in entry['res']:
+                                response_text = entry['res']['text']
+                                
+                                # The response text starts with {}&&, so we need to strip it
+                                if response_text.startswith('{}&&'):
+                                    json_text = strip_json_beginning(response_text, '{}&&')
+                                    response_data = json.loads(json_text)
+                                    
+                                    # Extract the payload from the response
+                                    if 'payload' in response_data:
+                                        return response_data['payload']
+                                    elif 'result' in response_data:
+                                        return response_data['result']
+                                    else:
+                                        return response_data
+                    except (json.JSONDecodeError, KeyError, ValueError):
+                        continue
+    
+    return None
+
+
 def upsert_more_info(session, extra_info: json, propertyID, listingID, isNewProperty):
+    if extra_info is None:
+        return
+    
     # fetch property to update
     try:
         prop = session.query(Property).filter_by(property_id=propertyID).one()
@@ -69,12 +164,11 @@ def upsert_more_info(session, extra_info: json, propertyID, listingID, isNewProp
                         source="redfin",
                     ))
                     setattr(prop, "covered_spaces", cv)
-                    logger.info(
-                        f"Updating Property_Change table. Covered_spaces; oldVal = {current_covered_spaces}, newVal = {cv} (redfin_id={prop.redfin_property_id}, property_id = {prop.property_id})")
-
+                    logger.info(f"DATABASE UPDATE: Property {propertyID} - Covered spaces changed from {current_covered_spaces} to {cv}")
+                    logger.info(f"DATABASE INSERT: Property {propertyID} - Created Property_Change record for covered_spaces")
             else:
                 prop.covered_spaces = cv
-                logger.info(f"Covered Spaces Value is now {cv} for property {propertyID}")
+                logger.info(f"DATABASE ADD: Property {propertyID} - Added covered spaces: {cv}")
         except (TypeError, ValueError):
             prop.covered_spaces = None
 
@@ -94,12 +188,11 @@ def upsert_more_info(session, extra_info: json, propertyID, listingID, isNewProp
                         source="redfin",
                     ))
                     setattr(prop, "tax_annual_amount", tx)
-                    logger.info(
-                        f"Updating Property_Change table. Tax_annual_amount; oldVal = {current_tax_amount}, newVal = {tx} (redfin_id={prop.redfin_property_id}, property_id = {prop.property_id})")
-
+                    logger.info(f"DATABASE UPDATE: Property {propertyID} - Tax annual amount changed from ${current_tax_amount:,} to ${tx:,}")
+                    logger.info(f"DATABASE INSERT: Property {propertyID} - Created Property_Change record for tax_annual_amount")
             else:
                 prop.tax_annual_amount = tx
-                logger.info(f"Tax Annual Amount is now {tx}")
+                logger.info(f"DATABASE ADD: Property {propertyID} - Added tax annual amount: ${tx:,}")
         except (TypeError, ValueError):
             prop.covered_spaces = None
     session.flush()
@@ -116,10 +209,10 @@ def upsert_more_info(session, extra_info: json, propertyID, listingID, isNewProp
         if old_agent_name is not None:
             if old_agent_name != new_agent_name:
                 lst.agent_name = new_agent_name
-                logger.info("agent_name changed from {} to {} for listing_id {}".format(old_agent_name, new_agent_name, listingID))
+                logger.info(f"DATABASE UPDATE: Listing {listingID} - Agent name changed from '{old_agent_name}' to '{new_agent_name}'")
         else:
             lst.agent_name = new_agent_name
-            logger.info("agent_name found = {} for listing_id {}".format(new_agent_name, listingID))
+            logger.info(f"DATABASE ADD: Listing {listingID} - Added agent name: '{new_agent_name}'")
 
     new_broker = extra_info.get("agents_broker")
     old_broker = lst.broker
@@ -127,10 +220,10 @@ def upsert_more_info(session, extra_info: json, propertyID, listingID, isNewProp
         if old_broker is not None:
             if  old_broker != new_broker:
                 lst.broker = new_broker
-                logger.info("broker changed from {} to {} for listing_id {}".format(old_broker, new_broker, listingID))
+                logger.info(f"DATABASE UPDATE: Listing {listingID} - Broker changed from '{old_broker}' to '{new_broker}'")
         else:
             lst.broker = new_broker
-            logger.info("agent_name broker = {} for listing_id {}".format(lst.broker, listingID))
+            logger.info(f"DATABASE ADD: Listing {listingID} - Added broker: '{new_broker}'")
 
     session.flush()
 
@@ -211,7 +304,7 @@ def bootstrap_price_histories(listing_id, price_history, session):
 
         if not initial_event:
             session.flush()
-            logger.info(f"No valid listing event found for listing {listing_id} (last 5 months)")
+            logger.warning(f"No valid listing event found for listing {listing_id} (last 5 months)")
             return
 
         # Collect all price change and listing events in order
@@ -223,7 +316,7 @@ def bootstrap_price_histories(listing_id, price_history, session):
 
         if not events_to_chain:
             session.flush()
-            logger.info(f"No price events to chain for listing {listing_id} (last 5 months)")
+            logger.warning(f"No price events to chain for listing {listing_id} (last 5 months)")
             return
 
         # Chain transitions: null -> first listed, then each price change/relist only if price changes
@@ -240,6 +333,7 @@ def bootstrap_price_histories(listing_id, price_history, session):
                     new_price=this_price,
                     source="redfin"
                 ))
+                logger.info(f"DATABASE INSERT: Price History - Listing {listing_id} - Initial price: ${this_price:,} on {this_date}")
                 prev_price = this_price
             else:
                 # Only add if price actually changes
@@ -251,6 +345,7 @@ def bootstrap_price_histories(listing_id, price_history, session):
                         new_price=this_price,
                         source="redfin"
                     ))
+                    logger.info(f"DATABASE INSERT: Price History - Listing {listing_id} - Price changed from ${prev_price:,} to ${this_price:,} on {this_date}")
                     prev_price = this_price
         session.flush()
         logger.info(f"Finished bootstrapping price history for listing {listing_id} (last 5 months)")
@@ -276,15 +371,14 @@ def upsert_property_school(property_id: int, school_id: int, school, session):
         if not old_prop_school:
             session.add(new_prop_school)
             session.flush()
-            logger.info("New Property School Join added, property_id={}, school_id={}, distance={}".format(property_id,school_id,dist))
-
+            logger.info(f"DATABASE INSERT: Property-School Join - Property {property_id} → School {school_id} (Distance: {dist})")
         else:
             old_dist = old_prop_school.distance
             if dist is not None and float(old_dist) != float(dist):
                 old_prop_school.distance = dist
                 old_prop_school.last_updated = datetime.now(timezone.utc)
                 session.flush()
-                logger.info("changed distance between property_id = {} to school_id = {} from {} to {}".format(property_id, school_id, old_dist, dist))
+                logger.info(f"DATABASE UPDATE: Property-School Join - Property {property_id} → School {school_id} - Distance changed from {old_dist} to {dist}")
 
     except Exception:
         logger.exception(f"Error upserting property_school with school_id={school_id}, property_id={property_id}")
@@ -323,6 +417,7 @@ def bootstrap_sold_histories(property_id, price_history, session):
                 price=entry.get('price'),
             )
             session.add(new_transaction)
+            logger.info(f"DATABASE INSERT: Transaction - Property {property_id} - {description} for ${entry.get('price'):,} on {dt}")
 
             # remember this date for next loop
             last_sale_date = dt
@@ -356,43 +451,105 @@ def upsert_school(school, session) -> int:
         )
         session.add(new_school)
         session.flush()  # populates new_school.school_id
-        logger.info(f"New school created: {new_school.name}")
+        logger.info(f"DATABASE INSERT: School '{new_school.name}' (ID: {new_school.school_id}) - Rating: {new_rating}")
         return new_school.school_id
     else:
         # update if needed
         old_rating = existing.rating
         if new_rating is not None and old_rating != new_rating:
             existing.rating = new_rating
-            logger.info(f"School name {existing.name}, school_id {existing.school_id}, rating changed from {old_rating} to {new_rating}")
+            logger.info(f"DATABASE UPDATE: School '{existing.name}' (ID: {existing.school_id}) - Rating changed from {old_rating} to {new_rating}")
             session.flush()
 
         return existing.school_id
 
 
 def get_property_json(html):
-    m = re.search(
-        r'belowTheFold".*?"text"\s*:\s*"((?:\\.|[^"\\])*)"',  # search for the json dump
-        html,
-        flags=re.DOTALL
-    )
-    if not m:
-        raise RuntimeError("Couldn't find the belowTheFold text block")
-
-    raw = m.group(1)
-
-    # un-escape JavaScript-style unicode (e.g. \u002F → /) and other escapes
-    #    (this also turns \\n, \\" etc. into real newlines and quotes)
-    decoded = bytes(raw, 'utf-8').decode('unicode_escape')
-
-    # strip off the "{}&&" prefix that Redfin tacks on to avoid XSSI
-    if decoded.startswith('{}&&'):
-        decoded = decoded.split('&&', 1)[1]
-
-    # parse into json
-    return json.loads(decoded).get("payload")
+    from bs4 import BeautifulSoup
+    from utils.http_utils import strip_json_beginning
+    
+    soup = BeautifulSoup(html, "html.parser")
+    # Check all script tags, not just those with type="text/javascript"
+    script_tags = soup.find_all("script")
+    if not script_tags:
+        raise ValueError("No script tags found in HTML")
+    
+    # First, try the old pattern (window.__INITIAL_STATE__)
+    for script in script_tags:
+        text = script.get_text()
+        if "window.__INITIAL_STATE__" in text:
+            m = re.search(
+                r"window\.__INITIAL_STATE__\s*=\s*({.*?})\s*;\s*$",
+                text,
+                flags=re.DOTALL
+            )
+            if not m:
+                raise ValueError("Found the script tag, but regex didn't match.")
+            payload = m.group(1)
+            payload = re.sub(r':\s*undefined', ':null', payload)
+            payload = re.sub(r',\s*([}\]])', r'\1', payload)
+            return json.loads(payload)
+    
+    # If old pattern not found, try the new pattern (root.__reactServerState)
+    for script in script_tags:
+        text = script.get_text()
+        if "root.__reactServerState" in text:
+            # Look for the InitialContext assignment
+            m = re.search(
+                r"root\.__reactServerState\.InitialContext\s*=\s*({.*?});",
+                text,
+                flags=re.DOTALL
+            )
+            if m:
+                try:
+                    context_data = json.loads(m.group(1))
+                    data_cache = context_data.get('ReactServerAgent.cache', {}).get('dataCache', {})
+                    
+                    # Look for the aboveTheFold entry which contains property data
+                    above_the_fold_key = '/stingray/api/home/details/aboveTheFold'
+                    if above_the_fold_key in data_cache:
+                        entry = data_cache[above_the_fold_key]
+                        if 'res' in entry and 'text' in entry['res']:
+                            response_text = entry['res']['text']
+                            
+                            # The response text starts with {}&&, so we need to strip it
+                            if response_text.startswith('{}&&'):
+                                json_text = strip_json_beginning(response_text, '{}&&')
+                                response_data = json.loads(json_text)
+                                
+                                # Extract the payload from the response
+                                if 'payload' in response_data:
+                                    return response_data['payload']
+                                elif 'result' in response_data:
+                                    return response_data['result']
+                                else:
+                                    return response_data
+                    
+                    # If aboveTheFold not found, try other property-related entries
+                    for key in data_cache.keys():
+                        if any(prop in key for prop in ['property', 'listing', 'home', 'details']):
+                            entry = data_cache[key]
+                            if 'res' in entry and 'text' in entry['res']:
+                                response_text = entry['res']['text']
+                                if response_text.startswith('{}&&'):
+                                    try:
+                                        json_text = strip_json_beginning(response_text, '{}&&')
+                                        response_data = json.loads(json_text)
+                                        if 'payload' in response_data:
+                                            return response_data['payload']
+                                    except:
+                                        continue
+                        
+                except (json.JSONDecodeError, KeyError, ValueError) as e:
+                    # Continue to next script if this one fails
+                    continue
+    
+    raise ValueError("Could not find any <script> with window.__INITIAL_STATE__ or root.__reactServerState")
 
 
 def clean_price(input_str: str):
+    if input_str is None or input_str == "":
+        return None
     # drop '(' and everything after
     s = input_str.split('(')[0]
     # remove any word starting with '\u' up to the next space

@@ -9,10 +9,10 @@ from dataBase import SessionLocal, Pipline_Tables
 
 
 def main():
-    # create_or_change_zip(zipcode="85297",
-    #                     sold_fetch_frequency=timedelta(days=7),
-    #                     for_sale_fetch_frequency=timedelta(days=1))
-    #
+    create_or_change_zip(zipcode="85297",
+                        sold_fetch_frequency=timedelta(days=7),
+                        for_sale_fetch_frequency=timedelta(days=1))
+    
     populate_sold_and_for_sale_queues()
 
     # keep processing pipeline jobs until none remain
