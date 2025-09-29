@@ -6,7 +6,7 @@ import os
 # Add the project directory to the path so we can import the modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from specfic_home_info_helper import (
+from src.scrapers.redfin.client import (
     create_url,
     get_specific_property_info,
     get_property_json,

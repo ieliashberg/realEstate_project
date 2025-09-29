@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
-from dataBase import SessionLocal, Zipcodes
-from job_table_helper import enqueue_job
+from datetime import datetime, timezone, timedelta
+from ..database.connection import SessionLocal, Zipcodes
+from .queue import enqueue_job
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -22,7 +22,9 @@ def populate_sold_and_for_sale_queues():
         for zip_row in zip_rows:
             # for-sale
             last_sale_fetch = zip_row.last_for_sale_fetch or datetime.fromtimestamp(0, tz=timezone.utc)
-            next_for_sale_fetch = last_sale_fetch + zip_row.for_sale_fetch_frequency
+            if last_sale_fetch.tzinfo is None:
+                last_sale_fetch = last_sale_fetch.replace(tzinfo=timezone.utc)
+            next_for_sale_fetch = last_sale_fetch + timedelta(days=zip_row.for_sale_fetch_frequency_days)
             if now >= next_for_sale_fetch:
                 enqueue_job(session, "for_sale_homes_fetch", {"zipcode": zip_row.zipcode})
                 num_for_sale_enqueued += 1
@@ -32,7 +34,9 @@ def populate_sold_and_for_sale_queues():
 
             # sold
             last_sold_fetch = zip_row.last_sold_fetch or datetime.fromtimestamp(0, tz=timezone.utc)
-            next_sold_fetch = last_sold_fetch + zip_row.sold_fetch_frequency
+            if last_sold_fetch.tzinfo is None:
+                last_sold_fetch = last_sold_fetch.replace(tzinfo=timezone.utc)
+            next_sold_fetch = last_sold_fetch + timedelta(days=zip_row.sold_fetch_frequency_days)
             if now >= next_sold_fetch:
                 enqueue_job(session, "sold_homes_fetch", {"zipcode": zip_row.zipcode})
                 num_sold_enqueued += 1

@@ -1,5 +1,5 @@
 from datetime import datetime, timezone, timedelta
-from dataBase import SessionLocal, Zipcodes
+from src.database.connection import SessionLocal, Zipcodes
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -24,12 +24,13 @@ def create_or_change_zip(zipcode: str, for_sale_fetch_frequency: timedelta, sold
         if not isinstance(sold_fetch_frequency, timedelta):
             raise ValueError("sold_fetch_frequency must be a timedelta")
 
-        if row.for_sale_fetch_frequency != for_sale_fetch_frequency:
-            row.for_sale_fetch_frequency = for_sale_fetch_frequency
+        # Check if frequencies need updating
+        if row.for_sale_fetch_frequency_days != for_sale_fetch_frequency.days:
+            row.for_sale_fetch_frequency_days = for_sale_fetch_frequency.days
             changes_made = True
 
-        if row.sold_fetch_frequency != sold_fetch_frequency:
-            row.sold_fetch_frequency = sold_fetch_frequency
+        if row.sold_fetch_frequency_days != sold_fetch_frequency.days:
+            row.sold_fetch_frequency_days = sold_fetch_frequency.days
             changes_made = True
 
         session.commit()

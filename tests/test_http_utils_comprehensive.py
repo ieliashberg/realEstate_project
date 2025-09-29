@@ -19,7 +19,7 @@ class TestMakeRequest:
         with patch('requests.get') as mock_get:
             mock_get.return_value = mock_response
             
-            from utils.http_utils import make_request
+            from src.utils.http import make_request
             result = make_request("https://example.com")
             
             assert result == "<html><body>Success</body></html>"
@@ -41,7 +41,7 @@ class TestMakeRequest:
         with patch('requests.get') as mock_get:
             mock_get.return_value = mock_response
             
-            from utils.http_utils import make_request
+            from src.utils.http import make_request
             headers = {"User-Agent": "Test Agent", "Accept": "text/html"}
             result = make_request("https://example.com", headers=headers)
             
@@ -63,7 +63,7 @@ class TestMakeRequest:
         with patch('requests.get') as mock_get:
             mock_get.return_value = mock_response
             
-            from utils.http_utils import make_request
+            from src.utils.http import make_request
             proxies = {"http": "http://proxy:8080", "https": "https://proxy:8080"}
             result = make_request("https://example.com", proxies=proxies)
             
@@ -84,7 +84,7 @@ class TestMakeRequest:
         with patch('requests.get') as mock_get:
             mock_get.return_value = mock_response
             
-            from utils.http_utils import make_request
+            from src.utils.http import make_request
             result = make_request("https://example.com", timeout=30)
             
             mock_get.assert_called_once_with(
@@ -103,7 +103,7 @@ class TestMakeRequest:
         with patch('requests.get') as mock_get:
             mock_get.return_value = mock_response
             
-            from utils.http_utils import make_request
+            from src.utils.http import make_request
             result = make_request("https://example.com")
             
             assert result is None
@@ -113,7 +113,7 @@ class TestMakeRequest:
         with patch('requests.get') as mock_get:
             mock_get.side_effect = requests.ConnectionError("Connection failed")
             
-            from utils.http_utils import make_request
+            from src.utils.http import make_request
             result = make_request("https://example.com")
             
             assert result is None
@@ -123,7 +123,7 @@ class TestMakeRequest:
         with patch('requests.get') as mock_get:
             mock_get.side_effect = requests.Timeout("Request timed out")
             
-            from utils.http_utils import make_request
+            from src.utils.http import make_request
             result = make_request("https://example.com")
             
             assert result is None
@@ -133,7 +133,7 @@ class TestMakeRequest:
         with patch('requests.get') as mock_get:
             mock_get.side_effect = requests.RequestException("Request failed")
             
-            from utils.http_utils import make_request
+            from src.utils.http import make_request
             result = make_request("https://example.com")
             
             assert result is None
@@ -143,7 +143,7 @@ class TestMakeRequest:
         with patch('requests.get') as mock_get:
             mock_get.side_effect = Exception("Unexpected error")
             
-            from utils.http_utils import make_request
+            from src.utils.http import make_request
             result = make_request("https://example.com")
             
             assert result is None
@@ -153,7 +153,7 @@ class TestMakeRequest:
         with patch('requests.get') as mock_get:
             mock_get.side_effect = Exception("Invalid URL")
             
-            from utils.http_utils import make_request
+            from src.utils.http import make_request
             result = make_request("not-a-valid-url")
             
             assert result is None
@@ -163,7 +163,7 @@ class TestMakeRequest:
         with patch('requests.get') as mock_get:
             mock_get.side_effect = Exception("None URL")
             
-            from utils.http_utils import make_request
+            from src.utils.http import make_request
             result = make_request(None)
             
             assert result is None
@@ -173,7 +173,7 @@ class TestMakeRequest:
         with patch('requests.get') as mock_get:
             mock_get.side_effect = Exception("Empty URL")
             
-            from utils.http_utils import make_request
+            from src.utils.http import make_request
             result = make_request("")
             
             assert result is None
@@ -194,7 +194,7 @@ class TestFetchHtmlViaHttps:
                 ]
                 mock_ua_service.return_value = mock_service
                 
-                from utils.http_utils import fetch_html_via_https
+                from src.utils.http import fetch_html_via_https
                 result = fetch_html_via_https("https://example.com")
                 
                 assert result == "<html><body>Success</body></html>"
@@ -213,7 +213,7 @@ class TestFetchHtmlViaHttps:
                 ]
                 mock_ua_service.return_value = mock_service
                 
-                from utils.http_utils import fetch_html_via_https
+                from src.utils.http import fetch_html_via_https
                 result = fetch_html_via_https("https://example.com")
                 
                 assert result == "<html><body>Success</body></html>"
@@ -233,7 +233,7 @@ class TestFetchHtmlViaHttps:
                 ]
                 mock_ua_service.return_value = mock_service
                 
-                from utils.http_utils import fetch_html_via_https
+                from src.utils.http import fetch_html_via_https
                 result = fetch_html_via_https("https://example.com")
                 
                 assert result is None
@@ -249,7 +249,7 @@ class TestFetchHtmlViaHttps:
                 mock_service.get_working_user_agents.return_value = []
                 mock_ua_service.return_value = mock_service
                 
-                from utils.http_utils import fetch_html_via_https
+                from src.utils.http import fetch_html_via_https
                 result = fetch_html_via_https("https://example.com")
                 
                 assert result == "<html><body>Success</body></html>"
@@ -263,7 +263,7 @@ class TestFetchHtmlViaHttps:
             with patch('services.user_agent_service.UserAgentService') as mock_ua_service:
                 mock_ua_service.side_effect = Exception("Database error")
                 
-                from utils.http_utils import fetch_html_via_https
+                from src.utils.http import fetch_html_via_https
                 result = fetch_html_via_https("https://example.com")
                 
                 assert result == "<html><body>Success</body></html>"
@@ -281,7 +281,7 @@ class TestFetchHtmlViaHttps:
                 ]
                 mock_ua_service.return_value = mock_service
                 
-                from utils.http_utils import fetch_html_via_https
+                from src.utils.http import fetch_html_via_https
                 custom_headers = {"Accept": "text/html", "Accept-Language": "en-US"}
                 result = fetch_html_via_https("https://example.com", custom_headers)
                 
@@ -309,7 +309,7 @@ class TestFetchHtmlViaHttps:
                 ]
                 mock_ua_service.return_value = mock_service
                 
-                from utils.http_utils import fetch_html_via_https
+                from src.utils.http import fetch_html_via_https
                 proxies = {"http": "http://proxy:8080", "https": "https://proxy:8080"}
                 result = fetch_html_via_https("https://example.com", proxy=proxies)
                 
@@ -324,7 +324,7 @@ class TestFetchHtmlViaHttps:
         with patch('utils.http_utils.make_request') as mock_make_request:
             mock_make_request.return_value = None
             
-            from utils.http_utils import fetch_html_via_https
+            from src.utils.http import fetch_html_via_https
             result = fetch_html_via_https(None)
             
             assert result is None
@@ -334,7 +334,7 @@ class TestFetchHtmlViaHttps:
         with patch('utils.http_utils.make_request') as mock_make_request:
             mock_make_request.return_value = None
             
-            from utils.http_utils import fetch_html_via_https
+            from src.utils.http import fetch_html_via_https
             result = fetch_html_via_https("")
             
             assert result is None
@@ -345,7 +345,7 @@ class TestStripJsonBeginning:
 
     def test_strip_json_beginning_valid_prefix(self):
         """Test stripping valid prefix from JSON."""
-        from utils.http_utils import strip_json_beginning
+        from src.utils.http import strip_json_beginning
         
         text = '{}&&{"key": "value"}'
         result = strip_json_beginning(text, '{}&&')
@@ -353,7 +353,7 @@ class TestStripJsonBeginning:
 
     def test_strip_json_beginning_without_prefix(self):
         """Test stripping when prefix is not present."""
-        from utils.http_utils import strip_json_beginning
+        from src.utils.http import strip_json_beginning
         
         text = '{"key": "value"}'
         with pytest.raises(ValueError, match="Prefix '{}&&' not found in text"):
@@ -361,28 +361,28 @@ class TestStripJsonBeginning:
 
     def test_strip_json_beginning_with_empty_text(self):
         """Test stripping with empty text."""
-        from utils.http_utils import strip_json_beginning
+        from src.utils.http import strip_json_beginning
         
         with pytest.raises(ValueError, match="Prefix '{}&&' not found in text"):
             strip_json_beginning("", '{}&&')
 
     def test_strip_json_beginning_with_none_text(self):
         """Test stripping with None text."""
-        from utils.http_utils import strip_json_beginning
+        from src.utils.http import strip_json_beginning
         
         with pytest.raises((TypeError, AttributeError)):
             strip_json_beginning(None, '{}&&')
 
     def test_strip_json_beginning_with_none_prefix(self):
         """Test stripping with None prefix."""
-        from utils.http_utils import strip_json_beginning
+        from src.utils.http import strip_json_beginning
         
         with pytest.raises((TypeError, AttributeError)):
             strip_json_beginning('{"key": "value"}', None)
 
     def test_strip_json_beginning_with_empty_prefix(self):
         """Test stripping with empty prefix."""
-        from utils.http_utils import strip_json_beginning
+        from src.utils.http import strip_json_beginning
         
         text = '{"key": "value"}'
         result = strip_json_beginning(text, '')
@@ -390,7 +390,7 @@ class TestStripJsonBeginning:
 
     def test_strip_json_beginning_with_multiple_prefixes(self):
         """Test stripping with multiple occurrences of prefix."""
-        from utils.http_utils import strip_json_beginning
+        from src.utils.http import strip_json_beginning
         
         text = '{}&&{}&&{"key": "value"}'
         result = strip_json_beginning(text, '{}&&')
@@ -398,7 +398,7 @@ class TestStripJsonBeginning:
 
     def test_strip_json_beginning_with_unicode_prefix(self):
         """Test stripping with unicode prefix."""
-        from utils.http_utils import strip_json_beginning
+        from src.utils.http import strip_json_beginning
         
         text = '🏠&&{"key": "value"}'
         result = strip_json_beginning(text, '🏠&&')
@@ -406,7 +406,7 @@ class TestStripJsonBeginning:
 
     def test_strip_json_beginning_with_very_long_prefix(self):
         """Test stripping with very long prefix."""
-        from utils.http_utils import strip_json_beginning
+        from src.utils.http import strip_json_beginning
         
         long_prefix = "A" * 1000 + "&&"
         text = long_prefix + '{"key": "value"}'
@@ -415,7 +415,7 @@ class TestStripJsonBeginning:
 
     def test_strip_json_beginning_with_very_long_text(self):
         """Test stripping with very long text."""
-        from utils.http_utils import strip_json_beginning
+        from src.utils.http import strip_json_beginning
         
         long_text = '{}&&' + "A" * 10000
         with pytest.raises(ValueError, match="Could not find complete valid JSON after prefix"):
@@ -432,7 +432,7 @@ class TestEdgeCases:
         with patch('requests.get') as mock_get:
             mock_get.side_effect = Exception("URL too long")
             
-            from utils.http_utils import make_request
+            from src.utils.http import make_request
             result = make_request(long_url)
             
             assert result is None
@@ -448,7 +448,7 @@ class TestEdgeCases:
         with patch('requests.get') as mock_get:
             mock_get.return_value = mock_response
             
-            from utils.http_utils import make_request
+            from src.utils.http import make_request
             result = make_request("https://example.com", headers=large_headers)
             
             assert result == "<html><body>Success</body></html>"
@@ -464,7 +464,7 @@ class TestEdgeCases:
         with patch('requests.get') as mock_get:
             mock_get.return_value = mock_response
             
-            from utils.http_utils import make_request
+            from src.utils.http import make_request
             result = make_request("https://example.com")
             
             assert result == large_response
@@ -481,7 +481,7 @@ class TestEdgeCases:
                 mock_service.get_working_user_agents.return_value = many_user_agents
                 mock_ua_service.return_value = mock_service
                 
-                from utils.http_utils import fetch_html_via_https
+                from src.utils.http import fetch_html_via_https
                 result = fetch_html_via_https("https://example.com")
                 
                 assert result is None
@@ -489,7 +489,7 @@ class TestEdgeCases:
 
     def test_strip_json_beginning_with_unicode_text(self):
         """Test stripping with unicode text."""
-        from utils.http_utils import strip_json_beginning
+        from src.utils.http import strip_json_beginning
         
         unicode_text = '{}&&{"key": "🏠 value 🚀"}'
         result = strip_json_beginning(unicode_text, '{}&&')
@@ -497,7 +497,7 @@ class TestEdgeCases:
 
     def test_strip_json_beginning_with_special_characters(self):
         """Test stripping with special characters."""
-        from utils.http_utils import strip_json_beginning
+        from src.utils.http import strip_json_beginning
         
         special_text = '{}&&{"key": "value with \\"quotes\\" and \'apostrophes\'"}'
         result = strip_json_beginning(special_text, '{}&&')

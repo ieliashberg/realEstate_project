@@ -7,14 +7,14 @@ import json
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timezone, timedelta
 
-from job_runner import (
+from src.pipeline.runner import (
     process_pipeline_jobs, 
     handle_individual_property_fetch, 
     handle_fetch_zestimate,
     handle_sold_or_for_sale_homes_fetch,
     MAX_RETRIES
 )
-from dataBase import SessionLocal, Pipline_Tables
+from src.database.connection import SessionLocal, Pipline_Tables
 
 
 class TestJobRunnerCore:

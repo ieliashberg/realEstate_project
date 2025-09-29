@@ -7,7 +7,7 @@ import json
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timezone
 
-from specfic_home_info_helper import (
+from src.scrapers.redfin.client import (
     get_specific_property_info,
     get_property_json,
     _extract_below_the_fold_data,

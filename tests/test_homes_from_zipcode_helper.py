@@ -8,7 +8,7 @@ import os
 # Add the project directory to the path so we can import the modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from homes_from_zipcode_helper import (
+from src.scrapers.redfin.parsers import (
     fetch_homes_json_from_zipcode,
     fetch_homes_json_via_playwright,
     upsert_initial_info,
@@ -16,7 +16,7 @@ from homes_from_zipcode_helper import (
     upsert_listing,
     get_list_date
 )
-from dataBase import (
+from src.database.connection import (
     SessionLocal, Zipcodes, Property, Property_Change, 
     Transaction, Listing, Status_History, Price_History
 )

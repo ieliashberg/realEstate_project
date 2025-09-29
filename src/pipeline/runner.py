@@ -1,8 +1,9 @@
-from dataBase import SessionLocal, Pipline_Tables
-from homes_from_zipcode_helper import fetch_homes_json_from_zipcode, upsert_initial_info
-from specfic_home_info_helper import get_specific_property_info, upsert_more_info
-from job_table_helper import enqueue_job
-from zestimate_helper import get_zestimate, upsert_zestimates
+from ..database.connection import SessionLocal, Pipline_Tables
+from ..scrapers.redfin.parsers import fetch_homes_json_from_zipcode, upsert_initial_info
+from ..scrapers.redfin.client import get_specific_property_info, upsert_more_info
+from .queue import enqueue_job
+from ..scrapers.zillow.client import get_zestimate, upsert_zestimates
+import json
 import logging
 
 # configure logging
@@ -14,32 +15,38 @@ logger = logging.getLogger(__name__)
 def process_pipeline_jobs():
     while True:
         session = SessionLocal()
-        job = session.query(Pipline_Tables).order_by(Pipline_Tables.id).first()
+        job = session.query(Pipline_Tables).order_by(Pipline_Tables.job_id).first()
         if not job:
             session.close()
             break
 
-        handler = PIPELINE_HANDLERS.get(job.name_of_pipeline)
+        handler = PIPELINE_HANDLERS.get(job.job_type)
         if not handler:
-            logger.warning(f"No handler for {job.name_of_pipeline}, deleting job {job.id}")
+            logger.warning(f"No handler for {job.job_type}, deleting job {job.job_id}")
             session.delete(job)
             session.commit()
-            logger.info(f"DATABASE DELETE: Job {job.id} ({job.name_of_pipeline}) - No handler found")
+            logger.info(f"DATABASE DELETE: Job {job.job_id} ({job.job_type}) - No handler found")
             session.close()
             continue
 
         try:
-            if job.name_of_pipeline in ("sold_homes_fetch", "for_sale_homes_fetch"):
-                handler(job.name_of_pipeline, job.payload)
+            # Parse payload if it's a JSON string
+            if isinstance(job.payload, str):
+                payload = json.loads(job.payload)
             else:
-                handler(job.payload)
+                payload = job.payload
+                
+            if job.job_type in ("sold_homes_fetch", "for_sale_homes_fetch"):
+                handler(job.job_type, payload)
+            else:
+                handler(payload)
 
             session.delete(job)
             session.commit()
-            logger.info(f"DATABASE DELETE: Job {job.id} ({job.name_of_pipeline}) - Completed successfully")
+            logger.info(f"DATABASE DELETE: Job {job.job_id} ({job.job_type}) - Completed successfully")
         except Exception:
             session.rollback()
-            logger.exception(f"Job {job.id} failed—rolled back, leaving it for retry")
+            logger.exception(f"Job {job.job_id} failed—rolled back, leaving it for retry")
         finally:
             session.close()
 
@@ -53,18 +60,25 @@ def handle_sold_or_for_sale_homes_fetch(pipeline: str, payload: dict):
     session = SessionLocal()
     for home in homes:
         # upsert property and get payload for next specific_info job scheduling
-
         payload = upsert_initial_info(session, home)
 
-        # put job into queue to get specific info
-        enqueue_job(session, "individual_property_fetch", payload)
-        enqueue_job(session, "fetch_zestimate", payload)
+        # Only enqueue jobs if we got a valid payload
+        if payload is not None:
+            # put job into queue to get specific info
+            enqueue_job(session, "individual_property_fetch", payload)
+            enqueue_job(session, "fetch_zestimate", payload)
+        else:
+            logger.error(f"Failed to upsert initial info for home, skipping job creation")
 
     session.commit()
     session.close()
 
 
 def handle_individual_property_fetch(payload: dict):
+    if payload is None:
+        logger.error("handle_individual_property_fetch received None payload")
+        return
+    
     property_id = payload.get("property_id")
     address = payload.get("address", "Unknown")
     city = payload.get("city", "Unknown")

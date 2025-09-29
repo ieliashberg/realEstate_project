@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
-from dataBase import SessionLocal
+from src.database.connection import SessionLocal
 
 
 @pytest.fixture

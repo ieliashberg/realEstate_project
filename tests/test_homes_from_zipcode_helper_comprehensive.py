@@ -7,7 +7,7 @@ import json
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timezone
 
-from homes_from_zipcode_helper import (
+from src.scrapers.redfin.parsers import (
     fetch_homes_json_from_zipcode,
     upsert_property,
     fetch_bounds_for_zip,

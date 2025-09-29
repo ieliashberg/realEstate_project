@@ -7,7 +7,7 @@ import os
 # Add the project directory to the path so we can import the modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from zestimate_helper import (
+from src.scrapers.zillow.client import (
     get_zestimate,
     create_url,
     pull_zestimate_from_html,

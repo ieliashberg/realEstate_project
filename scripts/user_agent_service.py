@@ -6,10 +6,15 @@ Scrapes, tests, and updates user agents in the database.
 """
 
 import sys
+import os
 from datetime import datetime, timezone
-from dataBase import SessionLocal
-from services.user_agent_service import UserAgentService
-from models.user_agent import UserAgent
+
+# Add the project root to the Python path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.database.connection import SessionLocal
+from src.scrapers.user_agents.service import UserAgentService
+from src.scrapers.user_agents.models import UserAgent
 
 
 def get_stats(session):
@@ -70,15 +75,10 @@ def main():
             ua_service.import_user_agents(new_uas)
             print(f"Imported {len(new_uas)} new user agents")
         
-        # Test unknown user agents
-        print("Testing unknown user agents...")
-        unknown_working, unknown_failing = test_user_agents(ua_service, 'unknown')
-        print(f"Unknown tested: {unknown_working} working, {unknown_failing} failing")
-        
-        # Retest some working user agents
-        print("Retesting existing user agents...")
-        existing_working, existing_failing = test_user_agents(ua_service, 'working', 10)
-        print(f"Existing retested: {existing_working} still working, {existing_failing} now failing")
+        # Test all user agents regardless of status
+        print("Testing all user agents...")
+        all_working, all_failing = ua_service.test_all_user_agents(50)
+        print(f"All agents tested: {all_working} working, {all_failing} failing")
         
         # Clean up old user agents
         removed_count = ua_service.cleanup_old_user_agents(days_old=30)

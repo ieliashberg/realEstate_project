@@ -4,8 +4,8 @@ Test script for Redfin and Zillow functionality
 """
 
 import sys
-from homes_from_zipcode_helper import fetch_homes_json_via_playwright
-from zestimate_helper import get_zestimate
+from src.scrapers.redfin.parsers import fetch_homes_json_via_playwright
+from src.scrapers.zillow.client import get_zestimate
 
 def test_redfin_zipcode_fetch():
     """Test Redfin zipcode fetching via playwright"""
@@ -116,7 +116,7 @@ def test_http_fetch():
     print("\n🌐 Testing HTTP Fetch...")
     
     try:
-        from utils.http_utils import fetch_html_via_https
+        from src.utils.http import fetch_html_via_https
         
         # Test with a simple endpoint
         url = 'https://httpbin.org/user-agent'

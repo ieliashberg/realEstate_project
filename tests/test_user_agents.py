@@ -6,8 +6,8 @@ import os
 # Add the project directory to the path so we can import the modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from services.user_agent_service import UserAgentService
-from models.user_agent import UserAgent
+from src.scrapers.user_agents.service import UserAgentService
+from src.scrapers.user_agents.models import UserAgent
 
 
 class TestUserAgentService(unittest.TestCase):

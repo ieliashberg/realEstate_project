@@ -7,11 +7,11 @@ import json
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timezone
 
-from job_runner import handle_individual_property_fetch, handle_fetch_zestimate, handle_sold_or_for_sale_homes_fetch
-from specfic_home_info_helper import get_specific_property_info, get_property_json, upsert_more_info
-from zestimate_helper import get_zestimate, pull_zestimate_from_html, upsert_zestimates
-from homes_from_zipcode_helper import fetch_homes_json_from_zipcode
-from utils.http_utils import make_request, fetch_html_via_https
+from src.pipeline.runner import handle_individual_property_fetch, handle_fetch_zestimate, handle_sold_or_for_sale_homes_fetch
+from src.scrapers.redfin.client import get_specific_property_info, get_property_json, upsert_more_info
+from src.scrapers.zillow.client import get_zestimate, pull_zestimate_from_html, upsert_zestimates
+from src.scrapers.redfin.parsers import fetch_homes_json_from_zipcode
+from src.utils.http import make_request, fetch_html_via_https
 
 
 class TestErrorHandling:

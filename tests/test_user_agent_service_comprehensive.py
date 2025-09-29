@@ -7,8 +7,8 @@ import json
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timezone, timedelta
 
-from services.user_agent_service import UserAgentService
-from models.user_agent import UserAgent
+from src.scrapers.user_agents.service import UserAgentService
+from src.scrapers.user_agents.models import UserAgent
 
 
 class TestUserAgentService:

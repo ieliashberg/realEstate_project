@@ -4,9 +4,9 @@ Test script for UserAgentService functionality
 """
 
 import sys
-from dataBase import SessionLocal
-from services.user_agent_service import UserAgentService
-from models.user_agent import UserAgent
+from src.database.connection import SessionLocal
+from src.scrapers.user_agents.service import UserAgentService
+from src.scrapers.user_agents.models import UserAgent
 
 def test_user_agent_service():
     """Test UserAgentService functionality"""
@@ -131,7 +131,7 @@ def test_user_agent_integration():
     print("\n🌐 Testing user agent integration...")
     
     try:
-        from utils.http_utils import fetch_html_via_https
+        from src.utils.http import fetch_html_via_https
         
         # Test HTTP request with user agent rotation
         url = 'https://httpbin.org/user-agent'

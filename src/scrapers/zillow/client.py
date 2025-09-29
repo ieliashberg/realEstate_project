@@ -1,16 +1,17 @@
-from dataBase import Property, Zestimate_History, SessionLocal
+from ...database.connection import Property, Zestimate_History, SessionLocal
 import time
 import random
 from playwright.sync_api import sync_playwright
-from services.user_agent_service import UserAgentService
+from ..user_agents.service import UserAgentService
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone
-from utils.http_utils import fetch_html_via_https, ZILLOW_HEADERS as zillow_base_headers
+from ...utils.http import fetch_html_via_https
+from ...config.settings import ZILLOW_HEADERS
 import re
 import json
 import logging
 
-zestimate_update_buffer = 0
+zestimate_update_buffer = 1000  # Only update if difference is > $1000
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ def get_zestimate(address, city, state, zipcode):
 def _try_http_request(url):
     """Try to fetch HTML using HTTP request."""
     try:
-        html = fetch_html_via_https(url, zillow_base_headers)
+        html = fetch_html_via_https(url, ZILLOW_HEADERS)
         if html and _is_valid_zestimate_page(html, url):
             return html
         return None
@@ -160,51 +161,74 @@ def upsert_zestimates(session, property_id, zestimate, zestimate_high, zestimate
         logger.error(f"Property with ID {property_id} not found")
         return
     
-    old_zestimate = corresponding_property.current_zestimate
-    old_zestimate_high = corresponding_property.current_zestimate_high
-    old_zestimate_low = corresponding_property.current_zestimate_low
+    # Get the latest zestimate values from history
+    latest_zestimate = (
+        session
+        .query(Zestimate_History)
+        .filter_by(property_id=property_id)
+        .order_by(Zestimate_History.change_date.desc())
+        .first()
+    )
+    
+    old_zestimate = latest_zestimate.new_zestimate if latest_zestimate else None
+    # Note: ZestimateHistory model only stores the main zestimate, not high/low
+    old_zestimate_high = None
+    old_zestimate_low = None
     
     values_changed = False
+    zestimate_changed = False  # Track if main zestimate changed (for history records)
 
-    # Update zestimate if it changed significantly
-    if zestimate is not None and (old_zestimate is None or abs(old_zestimate - zestimate) > zestimate_update_buffer):
-        corresponding_property.current_zestimate = zestimate
-        if old_zestimate is None:
-            logger.info(f"DATABASE ADD: Property {property_id} - Added zestimate: ${zestimate:,}")
-        else:
-            logger.info(f"DATABASE UPDATE: Property {property_id} - Zestimate changed from ${old_zestimate:,} to ${zestimate:,}")
-        values_changed = True
+    # Check if zestimate changed significantly (and is not exactly the same)
+    if zestimate is not None:
+        if old_zestimate is not None and zestimate == old_zestimate:
+            # Values are exactly the same, no need to create history record
+            logger.info(f"DATABASE NO CHANGE: Property {property_id} - Zestimate unchanged: ${zestimate:,}")
+        elif old_zestimate is None or abs(old_zestimate - zestimate) > zestimate_update_buffer:
+            if old_zestimate is None:
+                logger.info(f"DATABASE ADD: Property {property_id} - Added zestimate: ${zestimate:,}")
+            else:
+                logger.info(f"DATABASE UPDATE: Property {property_id} - Zestimate changed from ${old_zestimate:,} to ${zestimate:,}")
+            values_changed = True
+            zestimate_changed = True  # Main zestimate changed
 
-    # Update zestimate_high if it changed significantly
-    if zestimate_high is not None and (old_zestimate_high is None or abs(old_zestimate_high - zestimate_high) > zestimate_update_buffer):
-        corresponding_property.current_zestimate_high = zestimate_high
-        if old_zestimate_high is None:
-            logger.info(f"DATABASE ADD: Property {property_id} - Added zestimate_high: ${zestimate_high:,}")
-        else:
-            logger.info(f"DATABASE UPDATE: Property {property_id} - Zestimate_high changed from ${old_zestimate_high:,} to ${zestimate_high:,}")
-        values_changed = True
+    # Check if zestimate_high changed significantly (and is not exactly the same)
+    if zestimate_high is not None:
+        if old_zestimate_high is not None and zestimate_high == old_zestimate_high:
+            # Values are exactly the same, no need to create history record
+            logger.info(f"DATABASE NO CHANGE: Property {property_id} - Zestimate_high unchanged: ${zestimate_high:,}")
+        elif old_zestimate_high is None or abs(old_zestimate_high - zestimate_high) > zestimate_update_buffer:
+            if old_zestimate_high is None:
+                logger.info(f"DATABASE ADD: Property {property_id} - Added zestimate_high: ${zestimate_high:,}")
+            else:
+                logger.info(f"DATABASE UPDATE: Property {property_id} - Zestimate_high changed from ${old_zestimate_high:,} to ${zestimate_high:,}")
+            values_changed = True
 
-    # Update zestimate_low if it changed significantly
-    if zestimate_low is not None and (old_zestimate_low is None or abs(old_zestimate_low - zestimate_low) > zestimate_update_buffer):
-        corresponding_property.current_zestimate_low = zestimate_low
-        if old_zestimate_low is None:
-            logger.info(f"DATABASE ADD: Property {property_id} - Added zestimate_low: ${zestimate_low:,}")
-        else:
-            logger.info(f"DATABASE UPDATE: Property {property_id} - Zestimate_low changed from ${old_zestimate_low:,} to ${zestimate_low:,}")
-        values_changed = True
+    # Check if zestimate_low changed significantly (and is not exactly the same)
+    if zestimate_low is not None:
+        if old_zestimate_low is not None and zestimate_low == old_zestimate_low:
+            # Values are exactly the same, no need to create history record
+            logger.info(f"DATABASE NO CHANGE: Property {property_id} - Zestimate_low unchanged: ${zestimate_low:,}")
+        elif old_zestimate_low is None or abs(old_zestimate_low - zestimate_low) > zestimate_update_buffer:
+            if old_zestimate_low is None:
+                logger.info(f"DATABASE ADD: Property {property_id} - Added zestimate_low: ${zestimate_low:,}")
+            else:
+                logger.info(f"DATABASE UPDATE: Property {property_id} - Zestimate_low changed from ${old_zestimate_low:,} to ${zestimate_low:,}")
+            values_changed = True
 
-    # Create history record if any values changed
-    if values_changed:
+    # Create history record only if main zestimate changed (not just high/low)
+    if zestimate_changed:
         new_zestimate_row = Zestimate_History(
             property_id=property_id,
-            zestimate=zestimate,
-            zestimate_low=zestimate_low,
-            zestimate_high=zestimate_high,
-            date_retrieved=datetime.now(timezone.utc)
+            old_zestimate=old_zestimate,
+            new_zestimate=zestimate,
+            change_date=datetime.now(timezone.utc),
+            source="zillow_scraper"
         )
         session.add(new_zestimate_row)
         session.flush()
         logger.info(f"DATABASE INSERT: Property {property_id} - Created zestimate history record")
+    elif values_changed:
+        logger.info(f"DATABASE UPDATE: Property {property_id} - Only high/low values changed, no history record created")
     else:
         logger.info(f"DATABASE NO CHANGE: Property {property_id} - Zestimate values unchanged")
 
@@ -218,15 +242,58 @@ def human_delay(min_ms: int = 200, max_ms: int = 1200) -> None:
 
 def _is_valid_zestimate_page(html: str, url: str = None) -> bool:
     """
-    Check if the HTML content contains zestimate data.
-    Returns True if the page contains 'rentzestimate' (valid page).
-    Returns False if the page doesn't contain 'rentzestimate' (captcha/error page).
+    Check if the HTML content is a valid Zillow page with zestimate data.
+    Returns True if the page is valid and contains zestimate data.
+    Returns False if the page is an error page, captcha, or doesn't contain zestimate data.
     """
     if not html or not html.strip():
         return False
     
     html_lower = html.lower()
-    return 'rentzestimate' in html_lower
+    
+    # Check for clear error indicators first
+    error_indicators = [
+        'page not found',
+        '404 error',
+        'not found',
+        'error 404',
+        'this page does not exist',
+        'the page you requested could not be found',
+        'access denied',
+        'forbidden',
+        'error 403',
+        'blocked',
+        'captcha',
+        'verify you are human',
+        'security check',
+        'unusual traffic'
+    ]
+    
+    # If we find clear error indicators, it's definitely not valid
+    for indicator in error_indicators:
+        if indicator in html_lower:
+            logger.warning(f"HTML appears to be a {indicator} page")
+            return False
+    
+    # Check for positive indicators of a valid Zillow page
+    valid_indicators = [
+        'zillow',
+        'rentzestimate',
+        'zestimate',
+        'property details',
+        'rental manager',
+        'price my rental'
+    ]
+    
+    # Must have at least one valid indicator
+    has_valid_indicator = any(indicator in html_lower for indicator in valid_indicators)
+    
+    if not has_valid_indicator:
+        logger.warning("HTML does not contain expected Zillow content indicators")
+        return False
+    
+    # If we have valid indicators and no error indicators, it's likely valid
+    return True
 
 
 def _get_browser_args(proxy: str | None = None) -> list[str]:
@@ -424,6 +491,10 @@ def fetch_html_for_zestimate_via_playwright(url: str, headless: bool = True, pro
             # Check if we got blocked immediately
             if response and response.status >= 400:
                 logger.warning(f"Got HTTP {response.status} for {url}")
+                # For 403/404 errors, return None to indicate failure
+                if response.status in [403, 404]:
+                    return None
+                # For other 4xx/5xx errors, still return content for analysis
                 return page.content()
             
             # Simulate realistic mouse movement
@@ -482,7 +553,7 @@ def fetch_html_for_zestimate_via_playwright(url: str, headless: bool = True, pro
         cookie_list = context.cookies()
         cookie_string = cookies_list_to_header(cookie_list)
 
-        zillow_base_headers["cookie"] = cookie_string
+        ZILLOW_HEADERS["cookie"] = cookie_string
 
         time.sleep(60)
 

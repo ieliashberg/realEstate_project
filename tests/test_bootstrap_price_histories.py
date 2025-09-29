@@ -7,8 +7,8 @@ import os
 # Add the project directory to the path so we can import the modules
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from specfic_home_info_helper import bootstrap_price_histories
-from dataBase import Price_History
+from src.scrapers.redfin.client import bootstrap_price_histories
+from src.database.connection import Price_History
 
 
 class TestBootstrapPriceHistories(unittest.TestCase):

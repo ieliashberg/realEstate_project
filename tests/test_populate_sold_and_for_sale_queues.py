@@ -7,8 +7,8 @@ import os
 # Add the project directory to the path so we can import the modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from populate_sold_and_for_sale_queues import populate_sold_and_for_sale_queues
-from dataBase import Zipcodes
+from src.pipeline.scheduler import populate_sold_and_for_sale_queues
+from src.database.connection import Zipcodes
 
 
 class TestPopulateSoldAndForSaleQueues(unittest.TestCase):

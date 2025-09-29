@@ -9,7 +9,7 @@ import time
 # Add the project directory to the path so we can import the modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from job_runner import process_pipeline_jobs
+from src.pipeline.runner import process_pipeline_jobs
 
 
 class TimeoutException(Exception):

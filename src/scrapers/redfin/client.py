@@ -1,7 +1,9 @@
-from dataBase import Property, Transaction, Listing, School, Price_History, Property_School_Join, Property_Change
-from sqlalchemy.exc import SQLAlchemyError, NoResultFound
+from ...database.connection import Property, Transaction, Listing, School, Price_History, Property_School_Join, Property_Change
+from sqlalchemy.exc import NoResultFound
 from datetime import datetime, timezone, timedelta
-from utils.http_utils import fetch_html_via_https, REDFIN_HEADERS as redfin_base_headers
+from ...utils.http import fetch_html_via_https, strip_json_beginning
+from ...config.settings import REDFIN_HEADERS as redfin_base_headers
+from bs4 import BeautifulSoup
 import re
 import json
 import logging
@@ -86,10 +88,6 @@ def get_specific_property_info(payload: json):
 
 def _extract_below_the_fold_data(html):
     """Extract belowTheFold data from Redfin HTML which contains amenitiesInfo."""
-    from bs4 import BeautifulSoup
-    import re
-    import json
-    from utils.http_utils import strip_json_beginning
     
     soup = BeautifulSoup(html, "html.parser")
     script_tags = soup.find_all("script")
@@ -262,16 +260,8 @@ def bootstrap_price_histories(listing_id, price_history, session):
         else:
             relevant_entries = price_history[most_recent_sold_index + 1:]
 
-        # Filter to only entries within the last 5 months
-        five_months_ago = datetime.now() - timedelta(days=150)
-        recent_entries = []
-        for entry in relevant_entries:
-            try:
-                entry_date = datetime.strptime(entry.get("date"), "%Y-%m-%d")
-                if entry_date >= five_months_ago:
-                    recent_entries.append(entry)
-            except (ValueError, TypeError):
-                continue
+        # Use all relevant entries (not just recent ones for bootstrap)
+        recent_entries = relevant_entries
 
         # Sort entries by date (oldest first)
         recent_entries.sort(key=lambda x: datetime.strptime(x.get("date"), "%Y-%m-%d"))
@@ -465,8 +455,6 @@ def upsert_school(school, session) -> int:
 
 
 def get_property_json(html):
-    from bs4 import BeautifulSoup
-    from utils.http_utils import strip_json_beginning
     
     soup = BeautifulSoup(html, "html.parser")
     # Check all script tags, not just those with type="text/javascript"

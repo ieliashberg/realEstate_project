@@ -7,10 +7,10 @@ import os
 # Add the project directory to the path so we can import the modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from job_runner import process_pipeline_jobs, handle_sold_or_for_sale_homes_fetch
-from populate_sold_and_for_sale_queues import populate_sold_and_for_sale_queues
-from job_table_helper import enqueue_job
-from dataBase import Pipline_Tables, Zipcodes
+from src.pipeline.runner import process_pipeline_jobs, handle_sold_or_for_sale_homes_fetch
+from src.pipeline.scheduler import populate_sold_and_for_sale_queues
+from src.pipeline.queue import enqueue_job
+from src.database.connection import Pipline_Tables, Zipcodes
 
 
 class TestIntegration(unittest.TestCase):

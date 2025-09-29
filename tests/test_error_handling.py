@@ -4,9 +4,9 @@ Test script to verify error handling in process_pipeline_jobs.
 """
 
 import logging
-from dataBase import SessionLocal, Pipline_Tables
+from src.database.connection import SessionLocal, Pipline_Tables
 from datetime import datetime, timezone
-from job_runner import process_pipeline_jobs, MAX_RETRIES
+from src.pipeline.runner import process_pipeline_jobs, MAX_RETRIES
 
 # Configure logging to see detailed output
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')

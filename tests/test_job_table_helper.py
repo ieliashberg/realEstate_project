@@ -7,8 +7,8 @@ import os
 # Add the project directory to the path so we can import the modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from job_table_helper import enqueue_job
-from dataBase import Pipline_Tables
+from src.pipeline.queue import enqueue_job
+from src.database.connection import Pipline_Tables
 
 
 class TestJobTableHelper(unittest.TestCase):

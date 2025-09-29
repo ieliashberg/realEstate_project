@@ -7,7 +7,7 @@ import json
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timezone
 
-from zestimate_helper import (
+from src.scrapers.zillow.client import (
     get_zestimate,
     pull_zestimate_from_html,
     upsert_zestimates,

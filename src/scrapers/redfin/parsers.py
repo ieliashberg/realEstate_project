@@ -1,10 +1,11 @@
-from dataBase import SessionLocal, Zipcodes, Property, Property_Change, Transaction, Listing, Status_History, Price_History
-from services.user_agent_service import UserAgentService
+from ...database.connection import SessionLocal, Property, Property_Change, Transaction, Listing, Status_History, Price_History, Zipcodes
+from ..user_agents.service import UserAgentService
 from playwright.sync_api import sync_playwright
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import inspect
-from utils.http_utils import fetch_html_via_https, strip_json_beginning, REDFIN_HEADERS as redfin_base_headers
+from ...utils.http import fetch_html_via_https, strip_json_beginning
+from ...config.settings import REDFIN_HEADERS as redfin_base_headers
 
 import json
 import time
@@ -19,36 +20,36 @@ logger = logging.getLogger(__name__)
 def fetch_homes_json_from_zipcode(pipeline_name: str, zipcode: str):
     session = SessionLocal()
     try:
-        # try the database
-        record = (
-            session.query(Zipcodes)
-            .filter(Zipcodes.zipcode == zipcode)
-            .one_or_none()
-        )
+        # Get zipcode record using ORM
+        zipcode_record = session.query(Zipcodes).filter_by(zipcode=zipcode).first()
+        
+        homes_response = None
+        
+        if zipcode_record:
+            if pipeline_name == "for_sale_homes_fetch" and hasattr(zipcode_record, 'for_sale_request_url') and zipcode_record.for_sale_request_url:
+                homes_response = fetch_html_via_https(zipcode_record.for_sale_request_url, redfin_base_headers)
+                homes_response = json.loads(strip_json_beginning(homes_response, "{}&&"))
 
-        if record and record.for_sale_request_url and pipeline_name == "for_sale_homes_fetch":
-            homes_response = fetch_html_via_https(record.for_sale_request_url, redfin_base_headers)
-            homes_response = json.loads(strip_json_beginning(homes_response, "{}&&"))
-
-        elif record and record.sold_request_url and pipeline_name == "sold_homes_fetch":
-            homes_response = fetch_html_via_https(record.sold_request_url, redfin_base_headers)
-            homes_response = json.loads(strip_json_beginning(homes_response, "{}&&"))
+            elif pipeline_name == "sold_homes_fetch" and hasattr(zipcode_record, 'sold_request_url') and zipcode_record.sold_request_url:
+                homes_response = fetch_html_via_https(zipcode_record.sold_request_url, redfin_base_headers)
+                homes_response = json.loads(strip_json_beginning(homes_response, "{}&&"))
 
         # database miss or other error so fall back to playwright fetch
-        else:
+        if not homes_response:
             url = "https://www.redfin.com/zipcode/" + str(zipcode)
             if pipeline_name == "sold_homes_fetch":
                 url = url + "/filter/include=sold-3mo"
             homes_response, request_url = fetch_homes_json_via_playwright(url)
 
-            # persist for next time
-            existing_zip_row = session.get(Zipcodes, zipcode)
+            # persist for next time using ORM
             if pipeline_name == "for_sale_homes_fetch":
-                existing_zip_row.for_sale_request_url = request_url
-                existing_zip_row.last_for_sale_fetch = datetime.now(timezone.utc)
+                if hasattr(zipcode_record, 'for_sale_request_url'):
+                    zipcode_record.for_sale_request_url = request_url
+                    zipcode_record.last_for_sale_fetch = datetime.now(timezone.utc)
             else:
-                existing_zip_row.sold_request_url = request_url
-                existing_zip_row.last_sold_fetch = datetime.now(timezone.utc)
+                if hasattr(zipcode_record, 'sold_request_url'):
+                    zipcode_record.sold_request_url = request_url
+                    zipcode_record.last_sold_fetch = datetime.now(timezone.utc)
 
             session.commit()
 
@@ -119,8 +120,10 @@ def upsert_initial_info(session, home):
         listing_id = upsert_listing(home, payload.get("property_id"), session)
         payload["listing_id"] = listing_id
         return payload
-    except Exception:
+    except Exception as e:
+        logger.exception(f"Error upserting initial info for home: {e}")
         session.rollback()
+        return None
 
 
 def upsert_property(home, session):
@@ -129,7 +132,7 @@ def upsert_property(home, session):
         address=home.get('streetLine', {}).get('value'),
         city=home.get('city'),
         state=home.get('state'),
-        zipcode=home.get('zip'),
+        zip=home.get('zip'),
         latitude=home.get('latLong', {}).get('value', {}).get('latitude'),
         longitude=home.get('latLong', {}).get('value', {}).get('longitude'),
         lot_size=home.get('lotSize', {}).get('value'),
@@ -190,7 +193,7 @@ def upsert_property(home, session):
                 "city": old_prop.city,
                 "state": old_prop.state,
                 "address": old_prop.address,
-                "zipcode": old_prop.zipcode,
+                "zipcode": old_prop.zip,
                 "redfin_property_id": old_prop.redfin_property_id,
                 "property_id": old_prop.property_id,
                 "isNewProperty": False,
@@ -206,7 +209,7 @@ def upsert_property(home, session):
                 "city": new_prop.city,
                 "state": new_prop.state,
                 "address": new_prop.address,
-                "zipcode": new_prop.zipcode,
+                "zipcode": new_prop.zip,
                 "redfin_property_id": new_prop.redfin_property_id,
                 "property_id": new_prop.property_id,
                 "isNewProperty": True,
@@ -231,8 +234,8 @@ def upsert_listing(home, propertyID, session):
         list_date=get_list_date(home),
         current_status=home.get('mlsStatus'),       # mls listing, ex: Active, closed, pending etc.)
         url="https://www.redfin.com" + home.get('url'),
-        isNewConstruction=home.get('isNewConstruction'),
-        current_price=home.get('price', {}).get('value')
+        isnewconstruction=home.get('isNewConstruction'),
+        curr_price=home.get('price', {}).get('value')
     )
 
     try:
@@ -256,17 +259,17 @@ def upsert_listing(home, propertyID, session):
                 logger.info("Updated status for listing {} from {} to {}".format(old_list.listing_id, old_list_status, new_list.current_status))
 
             # if the curr price is not the same as prev price, update price history table
-            old_list_price = old_list.current_price
-            if old_list_price != new_list.current_price:
+            old_list_price = old_list.curr_price
+            if old_list_price != new_list.curr_price:
                 session.add(Price_History(
                     listing_id=old_list.listing_id,
                     change_date=datetime.now(timezone.utc),
-                    old_price=old_list.current_price,
-                    new_price=new_list.current_price,
+                    old_price=old_list.curr_price,
+                    new_price=new_list.curr_price,
                     source="redfin"
                 ))
-                setattr(old_list, 'current_price', new_list.current_price)
-                logger.info("Updated price history for listing {}, old price was {}, new price is {}".format(old_list.listing_id, old_list_price, new_list.current_price))
+                setattr(old_list, 'curr_price', new_list.curr_price)
+                logger.info("Updated price history for listing {}, old price was {}, new price is {}".format(old_list.listing_id, old_list_price, new_list.curr_price))
 
             listing_id = old_list.listing_id
 
@@ -279,7 +282,7 @@ def upsert_listing(home, propertyID, session):
         return listing_id
     except Exception as e:
         session.rollback()
-        logger.exception("Error inserting listing:", e)
+        logger.exception("Error inserting listing: %s", e)
         raise
 
 

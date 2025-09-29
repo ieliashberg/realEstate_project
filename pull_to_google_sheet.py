@@ -1,4 +1,4 @@
-from dataBase import (
+from src.database.connection import (
     SessionLocal,
     Property,
     Listing,
