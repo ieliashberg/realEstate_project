@@ -13,6 +13,7 @@ from datetime import date, datetime
 from typing import List, Dict, Any, Optional, Union
 
 import pandas as pd
+from dotenv import load_dotenv
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
@@ -25,6 +26,14 @@ from src.database.connection import (
     School,
 )
 
+load_dotenv()
+
+def _require_env_var(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
+
 # Google API scopes
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
@@ -34,12 +43,12 @@ SCOPES = [
 # OAuth configuration - should be moved to environment variables
 CLIENT_CONFIG = {
     "installed": {
-        "client_id": os.getenv("GOOGLE_CLIENT_ID", "463501623183-nkjaf5erg5jt5jkicuc1oeiltkdobuj2.apps.googleusercontent.com"),
-        "project_id": os.getenv("GOOGLE_PROJECT_ID", "real-estate-project-463201"),
+        "client_id": _require_env_var("GOOGLE_CLIENT_ID"),
+        "project_id": _require_env_var("GOOGLE_PROJECT_ID"),
         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
         "token_uri": "https://oauth2.googleapis.com/token",
         "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-        "client_secret": os.getenv("GOOGLE_CLIENT_SECRET", "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"),
+        "client_secret": _require_env_var("GOOGLE_CLIENT_SECRET"),
         "redirect_uris": ["http://localhost"]
     }
 }
